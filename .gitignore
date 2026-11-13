@@ -10,3 +10,4 @@ supabase/.temp
 supabase/.branches
 e2e-shots
 supabase/.env*
+.vite
