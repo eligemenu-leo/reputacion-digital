@@ -1,0 +1,22 @@
+{
+  "name": "@rep/connectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rep/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0",
+    "@types/node": "^22.10.0"
+  }
+}

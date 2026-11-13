@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tokens de diseño: todos los colores salen de aquí (modo claro/oscuro). */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --border: #e3e3e8;
+  --fg: #16161d;
+  --muted: #5d5d6b; /* 6.4:1 sobre blanco */
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef0ff;
+  --danger: #b42318;
+  --danger-soft: #fef1f0;
+  --success: #067647;
+  --success-soft: #ecfdf3;
+  --warning: #93370d;
+  --warning-soft: #fffaeb;
+  --ring: #6366f1;
+}
+
+.dark {
+  --bg: #0d0d12;
+  --surface: #15151c;
+  --surface-2: #1c1c25;
+  --border: #2a2a36;
+  --fg: #ececf1;
+  --muted: #a0a0b2; /* 7:1 sobre surface */
+  --accent: #8b8cf8;
+  --accent-fg: #0d0d12;
+  --accent-soft: #1f1f3a;
+  --danger: #f97066;
+  --danger-soft: #2a1414;
+  --success: #47cd89;
+  --success-soft: #0f2419;
+  --warning: #fdb022;
+  --warning-soft: #2a2010;
+  --ring: #8b8cf8;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
