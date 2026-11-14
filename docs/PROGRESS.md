@@ -74,7 +74,7 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 | Presupuesto mensual con reserva previa y corte; registro de coste por generación | ✅ | pruebas de flujo |
 | Guarda de datos reales hasta el DPA | ✅ | pruebas de flujo |
 | Interfaz: análisis en la ficha y sentimiento en la bandeja, avisos del borrador de IA (también para quien aprueba), estado y presupuesto en Configuración | ✅ | typecheck + e2e `phase3-smoke.mjs` |
-| Prueba real con OpenAI (reseñas ficticias) | ⏳ | en el Mac de Leo |
+| Prueba real con OpenAI (reseñas ficticias) | ✅ | e2e en el Mac de Leo: 12 reseñas clasificadas en 9 s (gpt-5.4-mini), borrador y variante (gpt-5.4), 14 generaciones, 0,0183 USD; `supabase db lint` sin errores |
 | Tendencias y resúmenes | ⏳ | segundo bloque de la Fase 3 |
 
 **Errores encontrados y corregidos durante la verificación:**
