@@ -75,11 +75,16 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 | Guarda de datos reales hasta el DPA | ✅ | pruebas de flujo |
 | Interfaz: análisis en la ficha y sentimiento en la bandeja, avisos del borrador de IA (también para quien aprueba), estado y presupuesto en Configuración | ✅ | typecheck + e2e `phase3-smoke.mjs` |
 | Prueba real con OpenAI (reseñas ficticias) | ✅ | e2e en el Mac de Leo: 12 reseñas clasificadas en 9 s (gpt-5.4-mini), borrador y variante (gpt-5.4), 14 generaciones, 0,0183 USD; `supabase db lint` sin errores |
-| Tendencias y resúmenes | ⏳ | segundo bloque de la Fase 3 |
+| Métricas observadas por cliente y periodo con comparación y temas | ✅ | pruebas de flujo (`reports.test.ts`) |
+| Informes con resumen de IA validado contra las cifras y hallazgos con ≥ 3 reseñas | ✅ | pruebas de flujo + unitarias |
+| Página de Informes (métricas, informe guardado, enlaces a las reseñas de respaldo) | ✅ | e2e `phase3-smoke.mjs` (paso 6) |
+| Prompt de redacción v2 (concordancia verbal) | ✅ | tras la prueba real |
 
 **Errores encontrados y corregidos durante la verificación:**
 1. El trigger `updated_at` impedía simular avisos antiguos en las pruebas del barrido de análisis → el barrido recibe el umbral como parámetro (como en publicaciones).
 2. El rango de caracteres invisibles se había guardado como caracteres literales (ESLint `no-irregular-whitespace`) → reescrito con secuencias de escape.
+3. Prueba real (bloque 2, Mac, gpt-5.4): la página Informes se quedaba en blanco (lectura de `insights.data` antes de cargar), al resumen no le llegaban ejemplos si ningún tema tenía 3 menciones y el modelo redactó porcentajes como recuentos («42 de positivo»). Corregido con `summary.v2`, ejemplos de contexto y la regla de validación «una cifra que solo existe como `*_pct` lleva %». Segunda ronda: e2e completo OK, informe `ready` con 2 hallazgos respaldados por 3 reseñas cada uno, coste 0,0314 $.
+4. Ajustes de esa segunda ronda: «negativas o mixtas», ningún hallazgo sobre el sector del negocio, «Más breve» ≤ 85 % del borrador actual, singular «1 estrella».
 
 ## Pendiente y bloqueado
 

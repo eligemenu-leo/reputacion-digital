@@ -1,6 +1,6 @@
 # Diseño de la inteligencia artificial
 
-> Estado: **clasificación y borradores implementados (Fase 3, 14/11/2026)**; tendencias y resúmenes pendientes (segundo bloque de la Fase 3). Clave de OpenAI configurada en local; **DPA pendiente**: hasta firmarlo, la IA real solo procesa reseñas ficticias (`platform_settings.ai_real_data_allowed`).
+> Estado: **clasificación, borradores, tendencias por tema y resúmenes de informe implementados (Fase 3, 14/11/2026)**. Clave de OpenAI configurada en local; **DPA pendiente**: hasta firmarlo, la IA real solo procesa reseñas ficticias (`platform_settings.ai_real_data_allowed`).
 
 ## Implementación (Fase 3)
 
@@ -11,12 +11,16 @@
 | Prompts versionados + JSON Schema estricto + esquema Zod | `apps/api/src/ai/prompts/{classify,draft}.v1.ts` |
 | Neutralización de texto externo, enmascarado, validación de borradores, similitud | `apps/api/src/ai/text.ts` |
 | Precios, reserva de presupuesto, clasificación (worker), borradores (API) | `apps/api/src/ai/{pricing,service}.ts` |
+| Métricas observadas (SQL) y validación de cifras | `apps/api/src/domain/metrics.ts` |
+| Informes con resumen y hallazgos | `apps/api/src/ai/reports.ts`, `prompts/summary.v2.ts` (v2: temas con respaldo explícitos, ejemplos de contexto aunque un tema no llegue a 3 menciones y regla «*_pct se escribe con %», validada en código); rutas `GET /v1/clients/:id/insights`, `POST/GET /v1/clients/:id/reports`, `GET /v1/reports/:id` |
 | Rutas | `POST /v1/interactions/:id/ai-draft`, `POST /v1/interactions/:id/ai-classify`, `GET /v1/organizations/:id/ai`, `PATCH /v1/organizations/:id/ai/budget`, `GET/POST /v1/clients/:id/brand` |
 
 * **Modelos por defecto** (verificados el 14/11/2026 en developers.openai.com): clasificación `gpt-5.4-mini` (0,75 / 4,50 USD por millón de tokens de entrada / salida), redacción `gpt-5.4` (2,50 / 15 USD). Cambiables con `AI_MODEL_CLASSIFY`, `AI_MODEL_DRAFT` y `AI_PRICES`. Un modelo **sin precio conocido no se usa**.
 * **Presupuesto:** 10 USD/mes por organización con corte automático por defecto (OpenAI factura en dólares). Antes de cada llamada se reserva el coste estimado (entrada ≈ caracteres/3, salida = máximo) bajo un bloqueo por organización; al terminar se guarda el coste real según los tokens informados.
 * **Clasificación:** al sincronizar, lo nuevo o modificado queda `ai_status = 'pending'` y se avisa al worker (`ai.classify`) tras el commit; el barrido recupera avisos perdidos. Reintentos: 3 como máximo con espera creciente ante errores transitorios o salida inválida. Caché por `input_hash`. Si el contenido cambia durante el análisis, el resultado se descarta.
 * **Borradores:** síncronos en la API (el usuario espera unos segundos). Si las reglas deterministas rechazan el texto, se reintenta **una vez** indicando el motivo; si vuelve a fallar, no se guarda nada y se explica por qué. El borrador generado entra por el mismo `saveDraft` que uno humano: invalida aprobaciones previas y **nunca** se envía a aprobación ni se publica solo.
+* **Informes:** el backend calcula todas las cifras (porcentajes ya redondeados, medias con un decimal, comparación con el periodo anterior y temas). La IA (`AI_MODEL_SUMMARY`, por defecto `gpt-5.4`) recibe solo esas métricas y hasta 6 ejemplos por tema (sin autor, enmascarados, referenciados como r1, r2…). Cualquier número del texto que no esté en las métricas o en las fechas del periodo → reintento con el motivo y, si persiste, informe guardado sin resumen. Hallazgos con menos de 3 reseñas del tema o de temas inexistentes → descartados con aviso. Menos de 10 interacciones → sin conclusiones (`insufficient_sample`). Los informes son inmutables.
+* **Prompt de redacción v2** (`draft.v2`): añade una revisión explícita de concordancia verbal y tratamiento tras detectar «que valores» por «que valoras» en la prueba real. `draft.v1` se conserva por trazabilidad.
 * `store: false` en cada llamada: el proveedor no conserva las respuestas para la API de conversaciones.
 
 

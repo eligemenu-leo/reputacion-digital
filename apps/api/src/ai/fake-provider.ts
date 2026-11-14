@@ -70,6 +70,42 @@ export function fakeDraft(req: AiRequest) {
   };
 }
 
+/** Resumen simulado: solo usa cifras presentes en <metrics> y los 3 primeros ejemplos del tema principal. */
+export function fakeSummary(req: AiRequest) {
+  const m = JSON.parse(/<metrics>\n([\s\S]*?)\n<\/metrics>/.exec(req.user)?.[1] ?? '{}') as {
+    total?: number;
+    negative_pct?: number;
+    topics?: { topic: string }[];
+  };
+  const topic = m.topics?.[0]?.topic ?? '';
+  const refs = [...req.user.matchAll(/\[(r\d+)\] temas: ([^·]*)·/g)]
+    .filter((x) =>
+      x[2]!
+        .split(',')
+        .map((s) => s.trim())
+        .includes(topic),
+    )
+    .map((x) => x[1]!)
+    .slice(0, 3);
+  return {
+    headline: `Resumen simulado de ${m.total ?? 0} interacciones`,
+    summary: `En el periodo hubo ${m.total ?? 0} interacciones; el ${m.negative_pct ?? 0} % fueron negativas o mixtas. Texto de la IA simulada (reglas de prueba).`,
+    findings:
+      topic && refs.length >= 3
+        ? [
+            {
+              kind: 'watch',
+              topic,
+              title: `Tema frecuente: ${topic}`,
+              description: 'Aparece de forma recurrente en las reseñas.',
+              supporting_refs: refs,
+            },
+          ]
+        : [],
+    caveats: ['Resumen generado por la IA simulada, no por un modelo real.'],
+  };
+}
+
 export class FakeAiProvider implements AiProvider {
   readonly name = 'fake' as const;
   calls: AiRequest[] = [];
@@ -82,7 +118,9 @@ export class FakeAiProvider implements AiProvider {
 
   async generate(req: AiRequest): Promise<AiResponse> {
     this.calls.push(req);
-    const h = this.handlers[req.task] ?? (req.task === 'classification' ? fakeClassify : fakeDraft);
+    const h =
+      this.handlers[req.task] ??
+      { classification: fakeClassify, draft: fakeDraft, summary: fakeSummary }[req.task];
     const output = await h(req);
     return {
       output,

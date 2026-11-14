@@ -47,6 +47,9 @@ const ApprovalsPage = lazy(() =>
 const SourcesPage = lazy(() =>
   import('@/features/sources/sources-page').then((m) => ({ default: m.SourcesPage })),
 );
+const ReportsPage = lazy(() =>
+  import('@/features/reports/reports-page').then((m) => ({ default: m.ReportsPage })),
+);
 const AdminPage = lazy(() =>
   import('@/features/admin/admin-page').then((m) => ({ default: m.AdminPage })),
 );
@@ -176,16 +179,7 @@ export function App() {
                       />
                     }
                   />
-                  <Route
-                    path="informes"
-                    element={
-                      <ComingSoonPage
-                        title="Informes"
-                        phase="Fase 5"
-                        description="Métricas observadas, evolución y resúmenes generados con IA, claramente diferenciados."
-                      />
-                    }
-                  />
+                  <Route path="informes" element={<ReportsPage />} />
                   <Route path="fuentes" element={<SourcesPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

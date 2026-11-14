@@ -110,7 +110,9 @@ Implementado en `private.has_client_permission_in(org, client, perm)` (SECURITY 
 | `response_drafts.ai_generation_id` | Trazabilidad del borrador generado | FK compuesta; `source = 'ai'` ⇔ hay generación |
 | `platform_settings.ai_real_data_allowed` | Guarda del DPA (ADR-021) | por defecto `false` |
 
-Pendiente del segundo bloque: `report_snapshots`, tendencias por tema y agregados de uso (hoy el consumo se calcula sobre `ai_generations`).
+| `report_snapshots` (`20261114000300_reports.sql`) | Informe por cliente y periodo: métricas observadas (jsonb), estado (`ready · metrics_only · insufficient_sample · blocked · failed`), resumen y hallazgos de IA, avisos, generación | append-only; `ready` ⇔ hay resumen; periodo ≤ 366 días; lectura con `reports.read` |
+
+Las tendencias por tema se calculan al vuelo desde `external_interactions.topics` (índice `(client_id, original_created_at)`); el consumo de IA, desde `ai_generations`.
 
 ### Fase 4 — Integraciones
 

@@ -66,7 +66,7 @@ export function AppShell() {
           icon: <CheckSquare />,
         },
         { to: `${base}/alertas`, label: 'Alertas', icon: <Bell />, phase: 'Fase 5' },
-        { to: `${base}/informes`, label: 'Informes', icon: <FileBarChart />, phase: 'Fase 5' },
+        { to: `${base}/informes`, label: 'Informes', icon: <FileBarChart /> },
       ],
     },
     {

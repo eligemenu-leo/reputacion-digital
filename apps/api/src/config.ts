@@ -34,6 +34,7 @@ const schema = z
     OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     AI_MODEL_CLASSIFY: z.string().min(1).default('gpt-5.4-mini'),
     AI_MODEL_DRAFT: z.string().min(1).default('gpt-5.4'),
+    AI_MODEL_SUMMARY: z.string().min(1).default('gpt-5.4'),
     AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(45_000),
     /** Sustituye la tabla de precios (USD por millón de tokens): {"modelo":{"input":n,"output":n}}. */
     AI_PRICES: z

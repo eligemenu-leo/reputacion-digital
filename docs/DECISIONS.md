@@ -96,3 +96,7 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Decisión:** la clasificación de la IA solo puede **subir** prioridad y añadir riesgos (nunca quitarlos); valoración ≤ 2 → al menos alta; riesgo sanitario, alimentario, legal, de seguridad o discriminación → crítica y revisión especializada. Los borradores pasan validaciones fijas (enlaces/emails/teléfonos no verificados, expresiones prohibidas, longitud, repetición) independientemente de lo que «diga» el modelo.
 * **Consecuencia:** el triaje de la Fase 2 (ADR-017) se mantiene como suelo; la IA lo enriquece.
 
+## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
+* **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
+* **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.
+

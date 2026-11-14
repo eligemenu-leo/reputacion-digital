@@ -8,7 +8,8 @@
  * Todas las reseñas son FICTICIAS (simulador). Recorre:
  * personalidad de marca → sincronización → clasificación automática por el
  * worker → análisis en la ficha → «Generar con IA» y «Más breve» → envío a
- * aprobación (sin publicar) → registro de generaciones y coste.
+ * aprobación (sin publicar) → informe con métricas y resumen de IA →
+ * registro de generaciones y coste.
  */
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -200,6 +201,25 @@ try {
     .waitFor();
   await pp.screenshot({ path: `${SHOTS}/f3-05-aprobacion-ia.png`, fullPage: true });
   log('La aprobadora ve el aviso «generada por IA» antes de decidir');
+
+  // 6. Informe: métricas observadas + resumen de IA validado
+  await pa.goto(`${BASE}${base}/informes`);
+  await pa.getByLabel(/^Cliente/).selectOption(client.id);
+  await pa.getByText('Temas más mencionados').waitFor();
+  await pa.screenshot({ path: `${SHOTS}/f3-06-informes-metricas.png`, fullPage: true });
+  await pa.getByRole('button', { name: /Crear informe con resumen IA/ }).click();
+  await pa.getByText(/Conclusión generada por IA/).waitFor({ timeout: 120000 });
+  const headline = await pa
+    .locator('section[aria-label="Conclusión generada por IA"] h3')
+    .innerText();
+  const [rep] = await sql`
+    select status, jsonb_array_length(summary->'findings') as findings, warnings
+      from public.report_snapshots where client_id = ${client.id} order by created_at desc limit 1`;
+  if (rep.status !== 'ready') fail(`Informe sin resumen: ${JSON.stringify(rep)}`);
+  await pa.screenshot({ path: `${SHOTS}/f3-07-informe-ia.png`, fullPage: true });
+  log(
+    `Informe con resumen de IA («${headline}»), ${rep.findings} hallazgos con ≥ 3 reseñas de respaldo`,
+  );
 
   const [tot] = await sql`
     select count(*)::int as n, coalesce(sum(cost_usd), 0)::float8 as cost
