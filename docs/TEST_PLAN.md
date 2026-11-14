@@ -15,6 +15,7 @@ node --env-file=apps/api/.env apps/api/dist/server.js & node --env-file=apps/api
 pnpm --filter @rep/web dev &
 node apps/web/e2e/phase1-smoke.mjs      # Fase 1 (requiere Mailpit)
 node apps/web/e2e/phase2-smoke.mjs      # Fase 2 (usa el worker real)
+node apps/web/e2e/phase3-smoke.mjs      # Fase 3 (IA: OpenAI si hay clave, o AI_PROVIDER=fake)
 ```
 
 ## Niveles
@@ -46,6 +47,12 @@ node apps/web/e2e/phase2-smoke.mjs      # Fase 2 (usa el worker real)
 **E2E Fase 2 (Supabase real + worker):** fuente simulada → sincronización por el worker → bandeja con filtros y búsqueda → asignación por lotes → gestor redacta y solicita (sin poder aprobar) → aprobadora en móvil → edición que anula la solicitud → aprobación → worker publica una vez y verifica → panel y modo oscuro.
 
 **E2E (Supabase real):** login superadmin → bloqueo por MFA → alta TOTP real → creación de organización → email de invitación real (Mailpit) → aceptación y contraseña → panel → MFA del admin → alta de cliente → ubicación → auditoría → aislamiento → modo oscuro → móvil.
+
+**Fase 3 · unitarias** (`apps/api/src/ai/ai.test.ts`): neutralización de delimitadores, invisibles y controles; enmascarado; similitud; validación de borradores (enlaces, emails, teléfonos, prohibidas, longitud, repetición); JSON Schema estrictos; prompts sin autor y con un único bloque `<interaction>`; reglas posteriores (nunca bajan prioridad); costes; configuración (`fake` prohibido en producción); cliente OpenAI con `fetch` simulado (petición estricta sin herramientas y `store: false`, clasificación de errores).
+
+**Fase 3 · integración y flujo** (`test/api/ai.test.ts`, proveedor simulado): permisos y versionado de la marca; sincronización → aviso → clasificación de 12 reseñas ficticias; riesgo sanitario crítico; intento de manipulación marcado; registro de generaciones con coste; caché sin nueva llamada; reintentos y error visible; barrido de avisos perdidos; sin marca no se genera; borrador IA trazado a la versión de marca y **sin publicación** hasta aprobación; variante tras aprobar invalida y cancela; rechazo y reintento por enlace, teléfono o expresión prohibida; datos verificados permitidos; salida fuera de esquema; IA desactivada por cliente o en el entorno; presupuesto (permisos, bloqueo sin llamada, sin corte, modelo sin precio); **guarda del DPA**; RLS e inmutabilidad de las tablas de IA.
+
+**E2E Fase 3:** marca → fuente simulada → clasificación por el worker → sentimiento en la bandeja → análisis de salud y de manipulación → «Generar con IA» y «Más breve» → envío a aprobación sin publicar → la aprobadora ve el aviso de IA → coste registrado.
 
 ## Escenarios E2E pendientes (spec §13)
 

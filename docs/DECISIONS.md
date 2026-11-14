@@ -78,3 +78,21 @@ Formato: contexto → decisión → alternativas → consecuencias.
 
 ## ADR-018 · Simulador con estado remoto en el esquema `private`
 * **Decisión:** el proveedor simulado guarda sus reseñas ficticias y respuestas en `private.simulator_*`, de modo que el worker y la API ven el mismo «remoto» y se pueden probar ambigüedades y duplicados de verdad. Bloqueado en `NODE_ENV=production`; todos sus datos llevan `is_simulated = true` y la etiqueta «Simulado» en la interfaz.
+
+## ADR-019 · Cliente propio de la Responses API y adaptador `AiProvider`
+* **Decisión:** una sola llamada HTTP (`POST /v1/responses`) con Structured Outputs estricto, sin herramientas y con `store: false`, detrás de la interfaz `AiProvider`. Sin SDK.
+* **Motivo:** superficie mínima, errores clasificados por nosotros (`auth`, `rate_limited`, `transient`, `refusal`, `incomplete`, `invalid_output`) y pruebas sin red (proveedor simulado o `fetch` inyectado).
+* **Consecuencia:** cambiar de proveedor = otra implementación de `AiProvider`.
+
+## ADR-020 · Presupuesto con reserva previa por organización
+* **Decisión:** cada llamada inserta antes una fila `ai_generations` en estado `running` con el coste estimado, bajo `pg_advisory_xact_lock` por organización; el gasto del mes suma estimaciones en curso y costes reales cerrados. Con `hard_stop` no se llama al modelo si se superaría el límite y se registra la fila como `blocked`.
+* **Consecuencia:** dos peticiones simultáneas no pueden superar el presupuesto; queda traza de cada bloqueo.
+
+## ADR-021 · Hasta el DPA, IA real solo con datos ficticios
+* **Decisión:** `platform_settings.ai_real_data_allowed` (por defecto `false`). Con un proveedor externo, las interacciones con `is_simulated = false` no se clasifican (`skipped`) ni se pueden usar para generar borradores (409).
+* **Consecuencia:** se puede probar con OpenAI real sin enviar datos personales de clientes. Activarlo requiere el DPA firmado y una decisión explícita de Leo.
+
+## ADR-022 · Las reglas deterministas mandan sobre la IA
+* **Decisión:** la clasificación de la IA solo puede **subir** prioridad y añadir riesgos (nunca quitarlos); valoración ≤ 2 → al menos alta; riesgo sanitario, alimentario, legal, de seguridad o discriminación → crítica y revisión especializada. Los borradores pasan validaciones fijas (enlaces/emails/teléfonos no verificados, expresiones prohibidas, longitud, repetición) independientemente de lo que «diga» el modelo.
+* **Consecuencia:** el triaje de la Fase 2 (ADR-017) se mantiene como suelo; la IA lo enriquece.
+

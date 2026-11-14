@@ -9,7 +9,6 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
-  Sparkles,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useOrg } from '@/lib/use-org';
@@ -30,6 +29,7 @@ import { ConfirmDialog } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { PriorityBadge, RiskBadges, SimulatedBadge, Stars, StateBadge } from './parts';
 import { ApprovalPanel } from './approval-panel';
+import { AiAnalysisCard, AiDraftActions, AiDraftNotice } from './ai-panel';
 
 const OUTCOME_LABELS: Record<string, string> = {
   published: 'publicada',
@@ -61,7 +61,10 @@ export function InteractionPage() {
     queryFn: () => api<InteractionDetail>(`/interactions/${id}`),
     // Mientras se publica, refresca para mostrar el resultado sin recargar.
     refetchInterval: (query) =>
-      ['approved', 'publishing'].includes(query.state.data?.interaction.state ?? '') ? 2500 : false,
+      ['approved', 'publishing'].includes(query.state.data?.interaction.state ?? '') ||
+      ['pending', 'running'].includes(query.state.data?.interaction.aiStatus ?? '')
+        ? 2500
+        : false,
   });
   const members = useQuery({
     queryKey: ['members', orgId],
@@ -282,6 +285,7 @@ export function InteractionPage() {
                         />
                       )}
                     </Field>
+                    {latest && !dirty && <AiDraftNotice draft={latest} />}
                     {dirty && invalidatesApproval && (
                       <p className="mt-2 text-xs text-warning">
                         Guardar cambios invalidará la{' '}
@@ -307,13 +311,14 @@ export function InteractionPage() {
                           <Send className="size-4" aria-hidden /> Enviar a aprobación
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        disabled
-                        title="Disponible en la Fase 3 (requiere clave de OpenAI)"
-                      >
-                        <Sparkles className="size-4" aria-hidden /> Generar con IA · Fase 3
-                      </Button>
+                    </div>
+                    <div className="mt-4 border-t border-border pt-3">
+                      <AiDraftActions
+                        detail={d}
+                        latest={latest}
+                        dirty={dirty}
+                        onGenerated={refresh}
+                      />
                     </div>
                   </div>
                 ) : (
@@ -372,6 +377,7 @@ export function InteractionPage() {
 
         {/* Lateral */}
         <div className="space-y-6">
+          <AiAnalysisCard detail={d} onChanged={refresh} />
           <Card className="space-y-4 p-5">
             <h2 className="text-sm font-semibold">Gestión</h2>
             <Field label="Asignada a">

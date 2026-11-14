@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/cn';
 import { ClientFormSheet } from './client-form';
 import { LocationFormSheet } from './location-form';
+import { BrandSection } from './brand-section';
 
 const TABS = [
   { key: 'ficha', label: 'Ficha' },
@@ -35,7 +36,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function ClientDetailPage() {
   const { orgId } = useOrg();
   const { clientId } = useParams<{ clientId: string }>();
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('ficha');
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(() =>
+    typeof window !== 'undefined' && window.location.hash === '#marca' ? 'marca' : 'ficha',
+  );
   const [editing, setEditing] = useState(false);
   const [locSheet, setLocSheet] = useState<{ open: boolean; location?: Location }>({ open: false });
   const [toDelete, setToDelete] = useState<Location | null>(null);
@@ -181,9 +184,10 @@ export function ClientDetailPage() {
               </dl>
             </Card>
             <Card className="p-5">
-              <h2 className="text-sm font-semibold">Información verificada del negocio</h2>
+              <h2 className="text-sm font-semibold">Contexto del negocio</h2>
               <p className="mt-1 text-xs text-muted">
-                Contexto que la IA podrá usar al redactar respuestas.
+                Notas internas. La IA no las usa: solo cita los «Datos verificados» de la
+                personalidad de marca.
               </p>
               <p className="mt-3 whitespace-pre-line text-sm">
                 {c.businessContext || <span className="text-muted">Sin información todavía.</span>}
@@ -326,14 +330,7 @@ export function ClientDetailPage() {
           </Card>
         )}
 
-        {tab === 'marca' && (
-          <Card>
-            <EmptyState
-              title="Disponible en Fase 3"
-              description="Tono, formalidad, tratamiento, expresiones recomendadas y prohibidas, ejemplos aprobados y versionado. El modelo de datos ya está preparado."
-            />
-          </Card>
-        )}
+        {tab === 'marca' && <BrandSection clientId={c.id} />}
         {tab === 'fuentes' && (
           <Card>
             <EmptyState

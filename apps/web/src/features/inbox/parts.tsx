@@ -1,7 +1,14 @@
 import { FlaskConical, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/misc';
-import { PRIORITY_TONE, RISK_LABELS, STATE_TONE, priorityLabel, stateLabel } from '@/lib/inbox';
-import type { InteractionState } from '@rep/shared';
+import {
+  PRIORITY_TONE,
+  RISK_LABELS,
+  SENTIMENT_TONE,
+  STATE_TONE,
+  priorityLabel,
+  stateLabel,
+} from '@/lib/inbox';
+import { SENTIMENT_LABELS_ES, type InteractionState, type Sentiment } from '@rep/shared';
 
 export function StateBadge({ state }: { state: InteractionState }) {
   return <Badge tone={STATE_TONE[state]}>{stateLabel(state)}</Badge>;
@@ -51,4 +58,9 @@ export function Stars({ rating, scale }: { rating: string | null; scale: number 
       ))}
     </span>
   );
+}
+
+export function SentimentBadge({ sentiment }: { sentiment: Sentiment | null }) {
+  if (!sentiment) return null;
+  return <Badge tone={SENTIMENT_TONE[sentiment]}>{SENTIMENT_LABELS_ES[sentiment]}</Badge>;
 }

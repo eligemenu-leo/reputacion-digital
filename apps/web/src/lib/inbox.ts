@@ -5,6 +5,10 @@ import {
   PROVIDER_LABELS_ES,
   type ConnectionStatus,
   type InteractionState,
+  type AiDraftVariant,
+  type AiStatus,
+  type Category,
+  type Sentiment,
 } from '@rep/shared';
 import type { Tone } from '@/components/ui/misc';
 
@@ -49,6 +53,8 @@ export const RISK_LABELS: Record<string, string> = {
   safety: 'Seguridad',
   discrimination: 'Discriminación',
   prompt_injection: 'Instrucciones sospechosas',
+  food_safety: 'Seguridad alimentaria',
+  personal_data: 'Datos personales',
 };
 
 export const SYNC_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -70,6 +76,8 @@ export const JOB_STATUS: Record<string, { label: string; tone: Tone }> = {
 
 export const EVENT_LABELS: Record<string, string> = {
   ingested: 'Recibida desde la fuente',
+  analysis_completed: 'Analizada por IA',
+  ai_classified: 'Análisis de IA actualizado',
   source_content_changed: 'El autor editó el contenido',
   existing_reply_changed: 'Cambió la respuesta visible en la fuente',
   assigned: 'Asignación cambiada',
@@ -114,6 +122,8 @@ export interface InboxItem {
   isSimulated: boolean;
   respondedAt: string | null;
   hasReply: boolean;
+  sentiment: Sentiment | null;
+  aiStatus: AiStatus;
 }
 
 export interface InboxResponse {
@@ -132,6 +142,17 @@ export interface Draft {
   source: 'human' | 'ai';
   createdByName: string | null;
   createdAt: string;
+  ai: {
+    id: string;
+    provider: 'openai' | 'fake';
+    model: string;
+    promptVersion: string;
+    variant: AiDraftVariant | null;
+    warnings: string[];
+    toneApplied: string | null;
+    usedFacts: string[] | null;
+    costUsd: string | null;
+  } | null;
 }
 
 export interface InteractionDetail {
@@ -148,7 +169,23 @@ export interface InteractionDetail {
     approvalRequestedAt: string | null;
     firstSeenAt: string;
     updatedAt: string;
+    category: Category | null;
+    aiError: string | null;
+    topics: string[];
+    aiConfidence: string | null;
+    requiresResponse: boolean | null;
+    clientAiEnabled: boolean;
   };
+  classification: {
+    id: string;
+    provider: 'openai' | 'fake';
+    model: string;
+    promptVersion: string;
+    rationale: string | null;
+    riskSignals: string[] | null;
+    completedAt: string | null;
+  } | null;
+  ai: { configured: boolean; provider: 'openai' | 'fake' | null };
   permissions: {
     canUpdate: boolean;
     canDraft: boolean;
@@ -214,3 +251,10 @@ export function ratingText(rating: string | null, scale: number | null) {
   if (rating == null) return null;
   return `${Number(rating).toLocaleString('es-ES')}/${scale ?? 5}`;
 }
+
+export const SENTIMENT_TONE: Record<Sentiment, Tone> = {
+  positive: 'success',
+  negative: 'danger',
+  neutral: 'neutral',
+  mixed: 'warning',
+};

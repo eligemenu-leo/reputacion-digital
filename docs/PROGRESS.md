@@ -51,7 +51,7 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 | Triaje provisional por reglas (prioridad, riesgos, revisión especializada) | ✅ | 3 pruebas unitarias |
 | Interfaz: bandeja con lotes, ficha con historial y editor, aprobaciones (móvil), fuentes con modos de prueba, panel con métricas reales | ✅ | e2e (9 pasos) + capturas |
 | Build de producción de API y worker (esbuild) y en CI | ✅ | `pnpm --filter @rep/api build` |
-| Generación de respuestas con IA | 🔒 | Fase 3 (botón visible y desactivado) |
+| Generación de respuestas con IA | ✅ | Fase 3 |
 | Dockerfile | ⏳ | al elegir hosting |
 
 **Errores encontrados y corregidos durante la verificación:**
@@ -62,11 +62,30 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 
 **Decisiones a validar por Leo:** separación de funciones redactor/aprobador (ADR-016) y si las aprobaciones deben exigir MFA (hoy no lo exigen; sí la gestión de miembros).
 
+## Fase 3 — IA, primer bloque ✅ (14/11/2026)
+
+| Funcionalidad | Estado | Verificación |
+|---|---|---|
+| Migración: generaciones de IA, presupuestos, estado del análisis, guarda del DPA | ✅ | PG 16 (shim); 3 pruebas de invariantes |
+| Personalidad de marca versionada (API + pestaña en la ficha del cliente) | ✅ | pruebas de permisos y versiones inmutables |
+| Clasificación automática en el worker (sentimiento, categoría, temas, prioridad, riesgos) con reglas deterministas encima | ✅ | pruebas de flujo con proveedor simulado |
+| «Generar con IA» y variantes (otra versión, más breve, más cercana, más formal) con la marca vigente | ✅ | pruebas de flujo |
+| Defensas: contenido delimitado y escapado, sin autor, emails/teléfonos enmascarados, sin herramientas, Unicode invisible, validación de salida y de borradores | ✅ | pruebas unitarias y de flujo |
+| Presupuesto mensual con reserva previa y corte; registro de coste por generación | ✅ | pruebas de flujo |
+| Guarda de datos reales hasta el DPA | ✅ | pruebas de flujo |
+| Interfaz: análisis en la ficha y sentimiento en la bandeja, avisos del borrador de IA (también para quien aprueba), estado y presupuesto en Configuración | ✅ | typecheck + e2e `phase3-smoke.mjs` |
+| Prueba real con OpenAI (reseñas ficticias) | ✅ | e2e en el Mac de Leo: 12 reseñas clasificadas en 9 s (gpt-5.4-mini), borrador y variante (gpt-5.4), 14 generaciones, 0,0183 USD; `supabase db lint` sin errores |
+| Tendencias y resúmenes | ⏳ | segundo bloque de la Fase 3 |
+
+**Errores encontrados y corregidos durante la verificación:**
+1. El trigger `updated_at` impedía simular avisos antiguos en las pruebas del barrido de análisis → el barrido recibe el umbral como parámetro (como en publicaciones).
+2. El rango de caracteres invisibles se había guardado como caracteres literales (ESLint `no-irregular-whitespace`) → reescrito con secuencias de escape.
+
 ## Pendiente y bloqueado
 
 | Elemento | Estado | Motivo |
 |---|---|---|
-| Fase 3: IA | 🔒 | clave de OpenAI + DPA |
+| IA con datos reales de clientes | 🔒 | DPA con OpenAI (la clave ya está configurada en local) |
 | Google Business Profile | 🔒 | acceso a la API (solicitud a Google) |
 | Facebook / Instagram | 🔒 | app de Meta + App Review |
 | Monitorización web | 🔒 | elección/contrato de proveedor (ADR-009) |

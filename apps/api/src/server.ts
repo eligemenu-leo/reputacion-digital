@@ -5,6 +5,7 @@ import { createTokenVerifier } from './lib/auth';
 import { createAuthAdmin } from './lib/supabase-admin';
 import { createBoss, ensureQueues, PgBossQueue } from './domain/pgboss-queue';
 import type { JobQueue } from './domain/queue';
+import { aiRuntimeFromConfig } from './ai/service';
 
 const config = loadConfig();
 const sql = createDb(config);
@@ -26,6 +27,7 @@ const app = await buildApp({
   verifyToken: createTokenVerifier(config),
   authAdmin: createAuthAdmin(config),
   queue,
+  ai: aiRuntimeFromConfig(config),
 });
 
 const shutdown = async (signal: string) => {

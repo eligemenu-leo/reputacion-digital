@@ -124,6 +124,7 @@ export async function saveDraft(
   content: string,
   actor: Actor,
   source: 'human' | 'ai' = 'human',
+  aiGenerationId: string | null = null,
 ) {
   if (i.state === 'publishing' || i.state === 'published') {
     throw new AppError('CONFLICT', 'La respuesta ya se está publicando o está publicada');
@@ -138,8 +139,8 @@ export async function saveDraft(
   }
   const version = (prev?.version ?? 0) + 1;
   const [draft] = await tx<{ id: string; version: number; content: string; contentHash: string }[]>`
-    insert into public.response_drafts (organization_id, client_id, interaction_id, version, content, content_hash, source, created_by)
-    values (${i.organizationId}, ${i.clientId}, ${i.id}, ${version}, ${content}, ${hash}, ${source}, ${actor.userId})
+    insert into public.response_drafts (organization_id, client_id, interaction_id, version, content, content_hash, source, ai_generation_id, created_by)
+    values (${i.organizationId}, ${i.clientId}, ${i.id}, ${version}, ${content}, ${hash}, ${source}, ${aiGenerationId}, ${actor.userId})
     returning id, version, content, content_hash`;
   const invalidates =
     i.state === 'pending_approval' || i.state === 'approved' || i.state === 'publish_failed';
@@ -153,7 +154,13 @@ export async function saveDraft(
     i,
     ev,
     actor,
-    { draftId: draft!.id, version, invalidatedApproval: invalidates, cancelledJobs: cancelled },
+    {
+      draftId: draft!.id,
+      version,
+      source,
+      invalidatedApproval: invalidates,
+      cancelledJobs: cancelled,
+    },
     invalidates ? { approvalRequestedBy: null, approvalRequestedAt: null } : {},
   );
   return { draft: draft!, unchanged: false };

@@ -10,6 +10,7 @@ import { createBoss, ensureQueues, PgBossQueue } from './domain/pgboss-queue';
 import { QUEUES } from './domain/queue';
 import { runPublish, sweepPublications, sweepSyncRuns } from './domain/publish';
 import { runSync, scheduleDueSyncs, type JobDeps } from './domain/sync';
+import { aiRuntimeFromConfig, runClassify, sweepClassifications, type AiDeps } from './ai/service';
 
 const config = loadConfig();
 const sql = createDb(config);
@@ -38,6 +39,10 @@ const deps: JobDeps = {
   authorRefPepper: config.AUTHOR_REF_PEPPER,
   log,
 };
+const ai = aiRuntimeFromConfig(config);
+deps.aiAutoClassify = Boolean(ai) && config.AI_AUTO_CLASSIFY;
+const aiDeps: AiDeps = { sql, ai, queue: deps.queue, log };
+log.info({ provider: ai?.provider.name ?? 'none', models: ai?.models ?? null }, 'ai runtime');
 
 await boss.work<{ id: string }>(QUEUES.sync, { localConcurrency: 4 }, async ([job]) => {
   if (job) await runSync(deps, job.data.id);
@@ -45,11 +50,15 @@ await boss.work<{ id: string }>(QUEUES.sync, { localConcurrency: 4 }, async ([jo
 await boss.work<{ id: string }>(QUEUES.publish, { localConcurrency: 2 }, async ([job]) => {
   if (job) await runPublish(deps, job.data.id);
 });
+await boss.work<{ id: string }>(QUEUES.classify, { localConcurrency: 4 }, async ([job]) => {
+  if (job) await runClassify(aiDeps, job.data.id);
+});
 await boss.work(QUEUES.sweep, async () => {
   const syncs = await scheduleDueSyncs(deps);
   const pubs = await sweepPublications(deps);
   const runs = await sweepSyncRuns(deps);
-  if (syncs + pubs + runs) log.info({ syncs, pubs, runs }, 'sweep');
+  const ais = ai ? await sweepClassifications(aiDeps) : 0;
+  if (syncs + pubs + runs + ais) log.info({ syncs, pubs, runs, ais }, 'sweep');
 });
 await boss.schedule(QUEUES.sweep, '* * * * *');
 log.info({}, 'worker started');

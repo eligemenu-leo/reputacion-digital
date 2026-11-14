@@ -28,7 +28,11 @@ interface Overview {
   recentClients: { id: string; name: string; status: ClientStatus; createdAt: string }[];
   modules: Record<
     string,
-    { status: 'not_available' | 'available' | 'simulator_only'; availableIn?: string }
+    {
+      status: 'not_available' | 'available' | 'simulator_only';
+      availableIn?: string;
+      reason?: 'not_configured';
+    }
   >;
 }
 
@@ -205,8 +209,12 @@ export function DashboardPage() {
                       : st.status === 'available'
                         ? 'Operativo'
                         : st.status === 'simulator_only'
-                          ? `Solo simulador · reales en ${phaseLabel(st.availableIn ?? '')}`
-                          : `Pendiente · ${phaseLabel(st.availableIn ?? '')}`}
+                          ? st.availableIn
+                            ? `Solo simulador · reales en ${phaseLabel(st.availableIn)}`
+                            : 'IA simulada (desarrollo)'
+                          : st.reason === 'not_configured'
+                            ? 'No configurada'
+                            : `Pendiente · ${phaseLabel(st.availableIn ?? '')}`}
                   </Badge>
                 </li>
               );

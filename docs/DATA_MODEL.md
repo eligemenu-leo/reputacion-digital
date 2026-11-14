@@ -100,18 +100,17 @@ Implementado en `private.has_client_permission_in(org, client, perm)` (SECURITY 
 
 ## Fases siguientes (diseño)
 
-### Fase 3 — IA
+### Fase 3 — IA (implementado: `20261114000200_ai_assist.sql`)
 
-```sql
-ai_generations (id, organization_id, client_id, interaction_id, kind 'classify'|'draft'|'trend'|'summary',
-                model, prompt_version, brand_profile_version_id, input_hash, output jsonb, status,
-                input_tokens, output_tokens, cost_eur numeric(10,6), latency_ms, created_by, created_at)
-interaction_analyses (interaction_id, ai_generation_id, language, sentiment, confidence, category,
-                      priority, requires_response, risk_signals text[], rationale, created_at)
-topics (id, organization_id, key, label) · interaction_topics (interaction_id, topic_id, ai_generation_id)
-ai_usage (bigint id, organization_id, client_id, day date, model, tokens_in, tokens_out, cost_eur)  -- agregados
-ai_budgets (organization_id, monthly_limit_eur, hard_stop boolean)
-```
+| Tabla / columna | Propósito | Invariantes |
+|---|---|---|
+| `ai_generations` | Cada llamada o intento bloqueado: tipo, proveedor, modelo, versión de prompt, versión de marca, variante, `input_hash`, salida validada, avisos, tokens, coste estimado y real, latencia, intentos | nace `running`; solo puede cerrarse una vez (`private.guard_ai_generation`); columnas de identidad inmutables; `authenticated` solo lee (`interactions.read`) |
+| `ai_budgets` | Límite mensual (USD) y corte automático por organización | sin fila = 10 USD con corte; escritura solo vía API (`organization.manage`) |
+| `external_interactions.ai_status` (`not_requested · pending · running · done · failed · skipped`), `ai_attempts`, `ai_error`, `ai_classification_id`, `topics`, `ai_confidence`, `requires_response` | Resultado y estado del análisis; `pending` es la fuente de verdad del outbox de clasificación | índice parcial sobre `pending/running` |
+| `response_drafts.ai_generation_id` | Trazabilidad del borrador generado | FK compuesta; `source = 'ai'` ⇔ hay generación |
+| `platform_settings.ai_real_data_allowed` | Guarda del DPA (ADR-021) | por defecto `false` |
+
+Pendiente del segundo bloque: `report_snapshots`, tendencias por tema y agregados de uso (hoy el consumo se calcula sobre `ai_generations`).
 
 ### Fase 4 — Integraciones
 

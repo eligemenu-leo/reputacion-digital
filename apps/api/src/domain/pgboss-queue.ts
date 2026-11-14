@@ -28,6 +28,11 @@ export async function ensureQueues(boss: PgBoss) {
     retryBackoff: true,
     expireInSeconds: 300,
   });
+  await boss.createQueue(QUEUES.classify, {
+    retryLimit: 1,
+    retryDelay: 60,
+    expireInSeconds: 300,
+  });
   await boss.createQueue(QUEUES.sweep, {
     retryLimit: 0,
     expireInSeconds: 120,

@@ -135,7 +135,10 @@ try {
   const pm = await login(manager);
   await pm.getByRole('link', { name: 'Bandeja', exact: true }).click();
   await pm.getByText(/sin gluten/).click();
-  await pm.getByRole('button', { name: /Generar con IA · Fase 3/ }).waitFor();
+  await pm
+    .getByRole('button', { name: /Generar con IA/ })
+    .first()
+    .waitFor();
   await pm
     .getByLabel(/^Borrador/)
     .fill('¡Hola, Carmen! Sí: tenemos carta sin gluten. Pídela al llegar y te asesoramos.');

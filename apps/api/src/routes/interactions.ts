@@ -101,7 +101,7 @@ export async function interactionRoutes(app: FastifyInstance) {
         select i.id, i.client_id, c.name as client_name, i.provider, i.kind, i.author_display_name, i.content, i.rating,
                i.rating_scale, i.state, i.priority, i.assignee_id, p.full_name as assignee_name, i.risk_flags,
                i.requires_specialist, i.original_created_at, i.is_simulated, i.responded_at,
-               (i.existing_reply_content is not null) as has_reply,
+               (i.existing_reply_content is not null) as has_reply, i.sentiment, i.ai_status,
                count(*) over()::int as total_count
           from public.external_interactions i
           join public.clients c on c.id = i.client_id
@@ -155,7 +155,8 @@ export async function interactionRoutes(app: FastifyInstance) {
                i.original_created_at, i.first_seen_at, i.last_seen_at, i.state, i.priority, i.assignee_id,
                p.full_name as assignee_name, p.email as assignee_email, i.sentiment, i.category, i.risk_flags,
                i.requires_specialist, i.existing_reply_content, i.existing_reply_at, i.approval_requested_by,
-               i.approval_requested_at, i.responded_at, i.is_simulated, i.updated_at
+               i.approval_requested_at, i.responded_at, i.is_simulated, i.updated_at,
+               i.ai_status, i.ai_error, i.topics, i.ai_confidence, i.requires_response, c.ai_enabled as client_ai_enabled
           from public.external_interactions i
           join public.clients c on c.id = i.client_id
           left join public.client_locations l on l.id = i.location_id
@@ -171,11 +172,21 @@ export async function interactionRoutes(app: FastifyInstance) {
                private.has_client_permission(${clientId}::uuid, 'responses.approve') as can_approve,
                (private.has_client_permission(${clientId}::uuid, 'responses.publish')
                  or private.has_client_permission(${clientId}::uuid, 'responses.approve')) as can_retry_publish`;
+      const [classification] = await tx`
+        select g.id, g.provider, g.model, g.prompt_version, g.output->>'rationale' as rationale,
+               g.output->'risk_signals' as risk_signals, g.completed_at
+          from public.external_interactions i join public.ai_generations g on g.id = i.ai_classification_id
+         where i.id = ${id}`;
       const [versions, drafts, approvals, events, jobs, attempts, receipts] = await Promise.all([
         tx`select id, content, rating, content_hash, observed_at from public.interaction_versions
             where interaction_id = ${id} order by observed_at desc limit 20`,
-        tx`select d.id, d.version, d.content, d.content_hash, d.source, d.created_by, p.full_name as created_by_name, d.created_at
+        tx`select d.id, d.version, d.content, d.content_hash, d.source, d.created_by, p.full_name as created_by_name, d.created_at,
+                  case when g.id is null then null else jsonb_build_object(
+                    'id', g.id, 'provider', g.provider, 'model', g.model, 'promptVersion', g.prompt_version,
+                    'variant', g.variant, 'warnings', g.warnings, 'toneApplied', g.output->>'tone_applied',
+                    'usedFacts', g.output->'used_facts', 'costUsd', g.cost_usd) end as ai
              from public.response_drafts d left join public.profiles p on p.id = d.created_by
+             left join public.ai_generations g on g.id = d.ai_generation_id
             where d.interaction_id = ${id} order by d.version desc limit 50`,
         tx`select a.id, a.draft_id, a.content_hash, a.decision, a.note, a.specialist_reviewed, a.decided_by,
                   p.full_name as decided_by_name, a.decided_at
@@ -197,6 +208,11 @@ export async function interactionRoutes(app: FastifyInstance) {
       ]);
       return {
         interaction,
+        classification: classification ?? null,
+        ai: {
+          configured: Boolean(app.deps.ai),
+          provider: app.deps.ai?.provider.name ?? null,
+        },
         permissions: perm,
         versions,
         drafts,
