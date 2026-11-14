@@ -5,24 +5,29 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "vitest run test/rls test/api",
-    "bootstrap:superadmin": "tsx --env-file-if-exists=.env scripts/bootstrap-superadmin.ts"
+    "bootstrap:superadmin": "tsx --env-file-if-exists=.env scripts/bootstrap-superadmin.ts",
+    "dev:worker": "tsx watch --env-file-if-exists=.env src/worker.ts",
+    "start:worker": "node dist/worker.js"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",
     "@fastify/helmet": "^13.0.0",
     "@fastify/rate-limit": "^10.2.0",
+    "@rep/connectors": "workspace:*",
     "@rep/shared": "workspace:*",
     "fastify": "^5.2.0",
+    "pg-boss": "^12.38.2",
     "postgres": "^3.4.5",
     "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "0.25.12",
     "jose": "^5.9.6",
     "tsx": "^4.19.2",
     "vitest": "^3.2.0"

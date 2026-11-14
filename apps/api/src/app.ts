@@ -13,12 +13,17 @@ import { meRoutes } from './routes/me';
 import { organizationRoutes } from './routes/organizations';
 import { memberRoutes } from './routes/members';
 import { clientRoutes } from './routes/clients';
+import { interactionRoutes } from './routes/interactions';
+import { connectionRoutes } from './routes/connections';
+import type { JobQueue } from './domain/queue';
 
 export interface AppDeps {
   config: Config;
   sql: Sql;
   verifyToken: TokenVerifier;
   authAdmin: AuthAdmin;
+  /** Avisos al worker (pg-boss en ejecución; en memoria en pruebas). */
+  queue: JobQueue;
 }
 
 declare module 'fastify' {
@@ -111,6 +116,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await v1.register(organizationRoutes);
       await v1.register(memberRoutes);
       await v1.register(clientRoutes);
+      await v1.register(interactionRoutes);
+      await v1.register(connectionRoutes);
     },
     { prefix: '/v1' },
   );

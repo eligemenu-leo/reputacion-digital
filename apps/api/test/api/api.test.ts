@@ -7,6 +7,7 @@ import { createTokenVerifier } from '../../src/lib/auth';
 import type { AuthAdmin } from '../../src/lib/supabase-admin';
 import { AppError } from '@rep/shared';
 import { JWT_SECRET, TEST_DB_URL, db, seedWorld, token, type Db, type World } from '../fixtures';
+import { RecordingQueue } from '../../src/domain/queue';
 
 let app: FastifyInstance;
 let seed: Db;
@@ -35,6 +36,7 @@ beforeAll(async () => {
     sql: createDb(config),
     verifyToken: createTokenVerifier(config),
     authAdmin,
+    queue: new RecordingQueue(),
   });
 });
 
@@ -234,7 +236,8 @@ describe('API · clientes y ubicaciones', () => {
     const r = await call('GET', `/v1/organizations/${w.orgA}/overview`, w.users.adminA);
     expect(r.status).toBe(200);
     expect(r.body.counts.clientsTotal).toBe(2);
-    expect(r.body.modules.inbox.status).toBe('not_available');
+    expect(r.body.modules.inbox.status).toBe('available');
+    expect(r.body.modules.alerts.status).toBe('not_available');
   });
 });
 

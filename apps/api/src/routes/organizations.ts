@@ -103,16 +103,33 @@ export async function organizationRoutes(app: FastifyInstance) {
           (select count(*)::int from public.clients c where c.organization_id = ${orgId} and c.status = 'onboarding') as clients_onboarding,
           (select count(*)::int from public.client_locations l where l.organization_id = ${orgId} and l.is_active) as locations_active,
           (select count(*)::int from public.organization_members m where m.organization_id = ${orgId} and m.status = 'active') as members_active`;
+      const [inbox] = await tx`
+        select count(*) filter (where state not in ('published', 'discarded', 'closed_no_response'))::int as open,
+               count(*) filter (where state not in ('published', 'discarded', 'closed_no_response') and priority >= 3)::int as high_priority,
+               count(*) filter (where state = 'pending_approval')::int as pending_approval,
+               count(*) filter (where state = 'publish_failed')::int as publish_failed,
+               count(*) filter (where state = 'published' and responded_at > now() - interval '7 days')::int as published_7d,
+               count(*) filter (where original_created_at > now() - interval '7 days')::int as received_7d,
+               count(*) filter (where is_simulated)::int as simulated
+          from public.external_interactions where organization_id = ${orgId}`;
+      const [sources] = await tx`
+        select count(*)::int as total,
+               count(*) filter (where status = 'connected')::int as connected,
+               count(*) filter (where status in ('credentials_expired', 'insufficient_access', 'temporary_error'))::int as with_errors,
+               count(*) filter (where is_simulated)::int as simulated
+          from public.connected_accounts where organization_id = ${orgId} and status <> 'disconnected'`;
       const recentClients = await tx`
         select id, name, status, created_at from public.clients
          where organization_id = ${orgId} order by created_at desc limit 5`;
       return {
         counts,
+        inbox,
+        sources,
         recentClients,
         modules: {
-          connectedSources: { status: 'not_available', availableIn: 'phase_4' },
-          inbox: { status: 'not_available', availableIn: 'phase_2' },
-          approvals: { status: 'not_available', availableIn: 'phase_2' },
+          connectedSources: { status: 'simulator_only', availableIn: 'phase_4' },
+          inbox: { status: 'available' },
+          approvals: { status: 'available' },
           alerts: { status: 'not_available', availableIn: 'phase_5' },
           sentiment: { status: 'not_available', availableIn: 'phase_3' },
         },

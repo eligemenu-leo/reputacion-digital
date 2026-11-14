@@ -36,15 +36,16 @@
 reputacion-digital/
 ├─ apps/
 │  ├─ web/                 SPA React (Vite). features/<dominio>/…, components/ui, layouts
-│  ├─ api/                 API HTTP Fastify. routes/<dominio>.ts, lib/{auth,authz,db,http}
-│  │  └─ test/             rls/ (políticas) · api/ (integración HTTP)
-│  └─ worker/              (Fase 2) procesador de colas pg-boss: sync, IA, publicación
+│  ├─ api/                 API HTTP Fastify + worker (dos procesos, mismo código de dominio)
+│  │  ├─ src/routes/       <dominio>.ts (HTTP)
+│  │  ├─ src/domain/       workflow, sync, publish, triage, conectores, colas (compartido API/worker)
+│  │  ├─ src/server.ts     proceso API · src/worker.ts proceso worker (pg-boss)
+│  │  └─ test/             rls/ (políticas) · api/ (integración HTTP + flujo con worker)
 ├─ packages/
 │  ├─ shared/              Contratos compartidos: permisos, esquemas Zod, errores,
 │  │                       máquina de estados de interacción, utilidades de fecha
-│  └─ connectors/          Contrato común de conectores + utilidades de deduplicación.
-│                          (F4) google-business-profile/, meta-facebook/, meta-instagram/,
-│                          web-search/, rss/, simulator/
+│  └─ connectors/          Contrato común de conectores, deduplicación y SimulatorConnector (F2).
+│                          (F4) google-business-profile/, meta-facebook/, meta-instagram/, web-search/, rss/
 ├─ supabase/
 │  ├─ config.toml          Configuración del stack local (Supabase CLI)
 │  ├─ migrations/          Migraciones SQL versionadas (única fuente del esquema)
@@ -83,13 +84,19 @@ La UI nunca consume formatos de Google o Meta: solo `NormalizedInteraction` y lo
 6. Operaciones que exigen saltarse RLS (alta de organizaciones, futuros jobs) usan `withService()` (`service_role`) **solo después** de una comprobación explícita, y conservan el actor en los claims para la auditoría.
 7. Errores de dominio → `{ error: { code, message, details, requestId } }`. Errores de BD se traducen (`42501`→403, `23505`→409…) sin filtrar detalles internos.
 
-## 5. Procesamiento asíncrono (diseño, se implementa en F2)
+## 5. Procesamiento asíncrono (implementado en F2)
 
-* **Cola:** `pg-boss` sobre la misma base de datos (persistente, transaccional, reintentos con backoff exponencial, `singletonKey` para evitar trabajos simultáneos incompatibles, cron para escaneos diarios). Sin Redis: menos piezas, misma durabilidad que los datos.
-* **Colas:** `sync.account` (por cuenta conectada), `ai.classify`, `ai.generate`, `publish.reply`, `alerts.evaluate`, `reports.summarize`.
-* **Aislamiento por proveedor:** cada proveedor tiene su propia cola y límites de concurrencia; un fallo de Meta no frena a Google.
-* **Publicación segura:** `publication_jobs` con `UNIQUE (response_draft_version_id)` + idempotencyKey. Antes de reintentar un error ambiguo se consulta `getPublicationStatus()`; si la respuesta remota ya existe con el texto esperado, se marca como publicada sin repetir.
-* **Interruptores:** `platform_settings.publishing_kill_switch` y `organizations.publishing_paused` se comprueban en el worker justo antes de cada llamada externa.
+* **Cola:** `pg-boss` 12 sobre la misma base de datos (esquema `pgboss`). El worker es un segundo punto de entrada del paquete `apps/api` (`src/worker.ts`, ADR-013).
+* **Patrón outbox:** la fuente de verdad son las filas (`provider_sync_runs.status = 'queued'`, `publication_jobs.status = 'queued'`), creadas en la misma transacción que la acción del usuario. El aviso a la cola se envía después del commit; si se pierde, el barrido (`maintenance.sweep`, cada minuto) lo vuelve a encolar. Los manejadores reclaman la fila con `UPDATE … WHERE status = 'queued'`, así que los avisos duplicados no hacen nada.
+* **Colas:** `sync.account` (concurrencia 4), `publish.reply` (concurrencia 2), `maintenance.sweep` (cron, singleton). En F3-F5 se añadirán `ai.*`, `alerts.evaluate`, `reports.summarize`.
+* **Sincronización:** incremental con ventana solapada de 15 min (`since = última correcta − 15 min`); la deduplicación por `(provider, cuenta, external_id)` absorbe el solape. Si el hash del contenido cambia se guarda una versión nueva y, si había una respuesta en revisión o aprobada, se vuelve a borrador. Cada cuenta en su propio trabajo: el fallo de una no afecta al resto; el estado de la cuenta refleja el tipo de error (credenciales caducadas, acceso insuficiente, error temporal).
+* **Publicación segura** (`domain/publish.ts`):
+  1. Reclama el trabajo y comprueba que la aprobación sigue siendo la última, del último borrador y del mismo texto; si no, lo cancela.
+  2. Consulta `publishing_kill_switch` y `organizations.publishing_paused`; si están activos deja el trabajo en cola (intento `blocked`) sin fallar.
+  3. Si es un reintento (`attempts > 1`), **consulta primero el estado remoto** (`getPublicationStatus`); si ya está publicado con el texto aprobado, lo confirma sin volver a enviar.
+  4. Publica con `idempotencyKey = pub-<approval_id>`; ante respuesta ambigua consulta el estado remoto antes de decidir.
+  5. Verifica el texto visible y guarda el recibo; errores reintentables se reprograman con backoff (o `Retry-After`), los definitivos quedan en `publish_failed` para reintento manual.
+* **Recuperación:** trabajos `running` > 10 min vuelven a `queued` (el siguiente intento consultará antes de publicar); sincronizaciones `running` > 30 min se marcan fallidas.
 
 ## 6. Entornos
 

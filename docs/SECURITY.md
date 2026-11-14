@@ -14,7 +14,9 @@
 | Mass assignment | Esquemas Zod `.strict()`; columnas actualizables limitadas por `GRANT UPDATE (col, …)` | ✅ F1, probado |
 | SSRF (monitorización web, webhooks) | Solo http/https, bloqueo de IPs privadas/link-local tras resolución DNS, límites de tamaño/tiempo, sin redirecciones a hosts internos | 📐 diseño F4 |
 | Prompt injection | Contenido externo tratado como dato; la IA no tiene herramientas de publicación; salida estructurada validada; ver `AI_DESIGN.md` | 📐 diseño F3 |
-| Publicación no autorizada / duplicada | Máquina de estados en backend y BD, aprobación ligada al hash del texto, idempotencyKey, consulta remota antes de reintentar, interruptor global y por organización | 📐 contrato F1, implementación F2 |
+| Publicación no autorizada / duplicada | Máquina de estados en backend y BD (trigger), aprobación ligada al hash SHA-256 del texto (comprobada en API y en BD), un solo trabajo vivo por interacción (índice único), idempotencyKey, consulta remota antes de reintentar, interruptor global y por organización, sin aprobación por lotes | ✅ F2, probado (`test/api/inbox.test.ts`) |
+| Saltarse el flujo con la API REST de Supabase | `authenticated` solo tiene SELECT en tablas de flujo; las escrituras pasan por API/worker | ✅ F2, probado (RLS) |
+| Uso de datos simulados como reales | `is_simulated` solo con `provider = 'simulator'` (CHECK), simulador bloqueado en producción, etiqueta «Simulado» en toda la interfaz | ✅ F2 |
 | Fuga de secretos en logs | Redacción de `authorization`/`cookie` en Pino; `private.redact()` en auditoría; errores sin detalles internos | ✅ F1, probado |
 | Tokens OAuth expuestos | Supabase Vault en esquema no expuesto; solo `service_role` | 📐 diseño F4 |
 | Abuso / fuerza bruta | Rate limit por usuario/IP en API (`@fastify/rate-limit`); límites de Supabase Auth | ✅ F1 |
@@ -47,7 +49,7 @@ Ver `DATA_MODEL.md → Modelo de permisos efectivo`. Reglas:
 * **Roles:** la agencia (organización) es responsable del tratamiento respecto a los datos de sus clientes; la plataforma actúa como **encargado** (contrato de encargo art. 28 RGPD a firmar con cada organización). OpenAI, Supabase y el hosting son subencargados: requieren DPA y, si hay transferencias fuera del EEE, cláusulas contractuales tipo / marco de privacidad UE-EE. UU.
 * **Finalidad:** gestionar la reputación digital del cliente (lectura de reseñas/comentarios públicos o autorizados y respuesta supervisada).
 * **Base jurídica:** interés legítimo del cliente en responder a opiniones públicas sobre su negocio (art. 6.1.f), con evaluación de ponderación documentada por la agencia.
-* **Minimización:** del autor solo se guarda el nombre visible y un identificador seudonimizado; a la IA se envía el texto de la interacción **sin** nombre ni identificadores del autor ni otros datos personales innecesarios (F3: se enmascararán emails/teléfonos detectados).
+* **Minimización:** del autor solo se guarda el nombre visible y un identificador seudonimizado (HMAC-SHA256 con `AUTHOR_REF_PEPPER`, F2); a la IA se envía el texto de la interacción **sin** nombre ni identificadores del autor ni otros datos personales innecesarios (F3: se enmascararán emails/teléfonos detectados).
 * **Conservación:** tabla de plazos en `DATA_MODEL.md`.
 * **Derechos de los interesados:** búsqueda por autor/URL y borrado/anonimización de sus interacciones mediante un procedimiento administrativo auditado (F5). Las reseñas siguen existiendo en la plataforma de origen; borramos nuestra copia.
 * **Datos sensibles:** reseñas sobre salud (clínicas) pueden contener datos de categoría especial (art. 9). Se marcan como riesgo, no se envían a la IA sin necesidad y siempre requieren revisión humana.
@@ -55,7 +57,7 @@ Ver `DATA_MODEL.md → Modelo de permisos efectivo`. Reglas:
 
 ## Interruptor de emergencia
 
-* `platform_settings.publishing_kill_switch` (superadmin) y `organizations.publishing_paused` (admin de organización). El worker los consulta justo antes de cada publicación (F2). Cambiarlos queda auditado.
+* `platform_settings.publishing_kill_switch` (superadmin) y `organizations.publishing_paused` (admin de organización). El worker los consulta justo antes de cada publicación: si están activos, el trabajo queda en espera (no se pierde ni se marca como fallido) y se reanuda al desactivarlos. Cambiarlos queda auditado. ✅ F2, probado.
 
 ## Gestión de vulnerabilidades
 
