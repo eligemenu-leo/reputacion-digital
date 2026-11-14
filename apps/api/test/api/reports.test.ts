@@ -188,6 +188,9 @@ describe('Fase 3 · informes con resumen de IA', () => {
     const prompt = fake.calls.filter((c) => c.task === 'summary').at(-1)!;
     expect(prompt.user).toContain('<metrics>');
     expect(prompt.user).not.toContain('Autora Secreta');
+    expect(prompt.user).toContain('<eligible_topics>');
+    expect(prompt.user).toMatch(/- servicio \(\d+ menciones\)/);
+    expect(prompt.user).toMatch(/\[r1\]/);
     const list = await call('GET', `/v1/clients/${w.clientA1}/reports`, w.users.managerA);
     expect(list.body[0]).toMatchObject({ id: reportId, status: 'ready', total: 12 });
   });
@@ -235,6 +238,26 @@ describe('Fase 3 · informes con resumen de IA', () => {
     const d = await call('GET', `/v1/reports/${r.body.id}`, w.users.managerA);
     expect(d.body.summary).toBeNull();
     expect(d.body.metrics.total).toBe(12);
+  });
+
+  it('rechaza porcentajes redactados como si fueran número de reseñas', async () => {
+    const m = (await call('GET', `/v1/clients/${w.clientA1}/insights`, w.users.managerA)).body
+      .metrics;
+    const pctOnly = [m.positive_pct, m.negative_pct].find(
+      (n: number) => n !== m.total && !Object.values(m.sentiment).includes(n),
+    );
+    expect(pctOnly).toBeDefined();
+    fake.setHandler('summary', () => ({
+      headline: `Hubo ${pctOnly} reseñas destacadas`,
+      summary: 'Resumen.',
+      findings: [],
+      caveats: [],
+    }));
+    const before = fake.calls.length;
+    const r = await call('POST', `/v1/clients/${w.clientA1}/reports`, w.users.managerA, {});
+    expect(r.body.status).toBe('failed');
+    expect(r.body.statusReason).toContain('sin el signo %');
+    expect(fake.calls.length - before).toBe(2);
   });
 
   it('descarta hallazgos sin respaldo suficiente o de temas que no existen', async () => {

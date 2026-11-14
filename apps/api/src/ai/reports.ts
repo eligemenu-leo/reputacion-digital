@@ -11,7 +11,13 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '@rep/shared';
 import { withService, type Tx } from '../lib/db';
-import { computeMetrics, allowedNumbers, unknownNumbers, type Metrics } from '../domain/metrics';
+import {
+  computeMetrics,
+  allowedNumbers,
+  percentWithoutSign,
+  unknownNumbers,
+  type Metrics,
+} from '../domain/metrics';
 import {
   callStructured,
   completeGeneration,
@@ -27,7 +33,7 @@ import {
   SUMMARY_SYSTEM,
   type SummaryExample,
   type SummaryOutput,
-} from './prompts/summary.v1';
+} from './prompts/summary.v2';
 
 export const MIN_SAMPLE = 10;
 export const MIN_SUPPORT = 3;
@@ -53,11 +59,9 @@ export interface ReportSummary {
 }
 
 async function loadExamples(tx: Tx, clientId: string, m: Metrics, onlySimulated: boolean) {
-  const topics = m.topics
-    .filter((t) => t.count >= MIN_SUPPORT)
-    .slice(0, 6)
-    .map((t) => t.topic);
-  if (!topics.length) return [];
+  // Ejemplos de los temas principales (aunque no lleguen al mínimo, sirven de
+  // contexto) y, además, las reseñas recientes con texto que no tengan tema.
+  const topics = m.topics.slice(0, 6).map((t) => t.topic);
   const rows = await tx<
     {
       id: string;
@@ -66,18 +70,20 @@ async function loadExamples(tx: Tx, clientId: string, m: Metrics, onlySimulated:
       ratingScale: number | null;
       sentiment: string | null;
       content: string;
-      topic: string;
     }[]
   >`
-    select * from (
-      select i.id, i.topics, i.rating, i.rating_scale, i.sentiment, i.content, t.topic,
-             row_number() over (partition by t.topic order by i.original_created_at desc) as rn
-        from public.external_interactions i cross join lateral unnest(i.topics) as t(topic)
-       where i.client_id = ${clientId} and t.topic = any(${topics}::text[])
+    select id, topics, rating, rating_scale, sentiment, content from (
+      select i.id, i.topics, i.rating, i.rating_scale, i.sentiment, i.content, i.original_created_at,
+             coalesce(t.topic, '') as topic,
+             row_number() over (partition by coalesce(t.topic, '') order by i.original_created_at desc) as rn
+        from public.external_interactions i
+        left join lateral unnest(i.topics) as t(topic) on t.topic = any(${topics}::text[])
+       where i.client_id = ${clientId}
          and i.original_created_at >= ${m.period.from}::date and i.original_created_at < ${m.period.to}::date + 1
          and coalesce(btrim(i.content), '') <> ''
          and (${onlySimulated} = false or i.is_simulated)
-    ) x where rn <= ${EXAMPLES_PER_TOPIC}`;
+    ) x where rn <= ${EXAMPLES_PER_TOPIC}
+    order by topic <> '' desc, original_created_at desc`;
   const seen = new Map<string, SummaryExample>();
   for (const r of rows) {
     if (seen.has(r.id)) continue;
@@ -109,6 +115,12 @@ export function validateSummary(out: SummaryOutput, m: Metrics, examples: Summar
   ];
   const bad = [...new Set(texts.flatMap((t) => unknownNumbers(t, allowed)))];
   if (bad.length) reasons.push(`Contiene cifras que no están en las métricas: ${bad.join(', ')}`);
+  const pctMisuse = [...new Set(texts.flatMap((t) => percentWithoutSign(t, m)))];
+  if (pctMisuse.length) {
+    reasons.push(
+      `Usa porcentajes sin el signo % (parecen recuentos): ${pctMisuse.join(', ')}. Escribe «N %» o usa los recuentos de sentiment`,
+    );
+  }
   const byRef = new Map(examples.map((e) => [e.ref, e]));
   const topics = new Set(m.topics.map((t) => t.topic));
   const findings: ReportFinding[] = [];
@@ -243,7 +255,7 @@ export async function createReport(
         model,
         system: SUMMARY_SYSTEM,
         user: prompt,
-        schemaName: 'summary_v1',
+        schemaName: 'summary_v2',
         jsonSchema: summaryJsonSchema as unknown as Record<string, unknown>,
         maxOutputTokens: SUMMARY_MAX_OUTPUT,
       },

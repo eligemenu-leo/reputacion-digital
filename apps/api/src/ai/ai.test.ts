@@ -307,3 +307,24 @@ describe('validación de cifras del resumen', () => {
     expect(unknownNumbers('El 87 % y 3.25 de media', allowed)).toEqual(['87', '3.25']);
   });
 });
+
+describe('porcentajes redactados como recuentos', () => {
+  it('exige «%» a las cifras que solo existen como porcentaje', async () => {
+    const { percentWithoutSign } = await import('../domain/metrics');
+    const m = {
+      total: 12,
+      sentiment: { positive: 5, negative: 3 },
+      positive_pct: 42,
+      negative_pct: 42,
+      response_rate_pct: 25,
+      topics: [{ topic: 'servicio', count: 4, negative_pct: 50 }],
+    } as never;
+    expect(percentWithoutSign('Hubo 42 de positivo y 42 de negativo', m)).toEqual(['42', '42']);
+    expect(percentWithoutSign('El 42 % positivas, el 42% negativas y un 25 por ciento', m)).toEqual(
+      [],
+    );
+    // 12 y 5 son recuentos; 4 existe como recuento y no se exige «%».
+    expect(percentWithoutSign('12 reseñas, 5 positivas y 4 sobre servicio', m)).toEqual([]);
+    expect(percentWithoutSign('servicio: 50 negativas', m)).toEqual(['50']);
+  });
+});

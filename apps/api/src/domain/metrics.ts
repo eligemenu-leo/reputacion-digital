@@ -212,3 +212,26 @@ export function unknownNumbers(text: string, allowed: Set<number>): string[] {
   const found = text.match(/\d+(?:[.,]\d+)?/g) ?? [];
   return [...new Set(found.filter((s) => !allowed.has(Number(s.replace(',', '.')))))];
 }
+
+/**
+ * Números que solo existen en las métricas como porcentaje (`*_pct`) y que el
+ * texto usa sin «%» o «por ciento»: se leerían como recuentos («42 positivas»).
+ */
+export function percentWithoutSign(text: string, m: Metrics): string[] {
+  const pcts = new Set<number>();
+  const others = new Set<number>();
+  const walk = (v: unknown, key = '') => {
+    if (typeof v === 'number') (key.endsWith('_pct') ? pcts : others).add(v);
+    else if (Array.isArray(v)) v.forEach((x) => walk(x, key));
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, k));
+  };
+  walk(m);
+  const out: string[] = [];
+  for (const match of text.matchAll(/\d+(?:[.,]\d+)?/g)) {
+    const n = Number(match[0].replace(',', '.'));
+    if (!pcts.has(n) || others.has(n)) continue;
+    const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + 12);
+    if (!/^\s?(%|por ?ciento)/i.test(after)) out.push(match[0]);
+  }
+  return out;
+}

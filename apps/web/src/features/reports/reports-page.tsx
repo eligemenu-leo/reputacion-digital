@@ -466,7 +466,7 @@ export function ReportsPage() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="p-5 lg:col-span-2">
-            {insights.isLoading ? (
+            {!insights.data && !insights.isError ? (
               <Skeleton className="h-64 rounded-lg" />
             ) : insights.isError ? (
               <ErrorState error={insights.error} onRetry={() => insights.refetch()} />

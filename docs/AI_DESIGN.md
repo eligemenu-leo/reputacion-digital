@@ -12,7 +12,7 @@
 | Neutralización de texto externo, enmascarado, validación de borradores, similitud | `apps/api/src/ai/text.ts` |
 | Precios, reserva de presupuesto, clasificación (worker), borradores (API) | `apps/api/src/ai/{pricing,service}.ts` |
 | Métricas observadas (SQL) y validación de cifras | `apps/api/src/domain/metrics.ts` |
-| Informes con resumen y hallazgos | `apps/api/src/ai/reports.ts`, `prompts/summary.v1.ts`; rutas `GET /v1/clients/:id/insights`, `POST/GET /v1/clients/:id/reports`, `GET /v1/reports/:id` |
+| Informes con resumen y hallazgos | `apps/api/src/ai/reports.ts`, `prompts/summary.v2.ts` (v2: temas con respaldo explícitos, ejemplos de contexto aunque un tema no llegue a 3 menciones y regla «*_pct se escribe con %», validada en código); rutas `GET /v1/clients/:id/insights`, `POST/GET /v1/clients/:id/reports`, `GET /v1/reports/:id` |
 | Rutas | `POST /v1/interactions/:id/ai-draft`, `POST /v1/interactions/:id/ai-classify`, `GET /v1/organizations/:id/ai`, `PATCH /v1/organizations/:id/ai/budget`, `GET/POST /v1/clients/:id/brand` |
 
 * **Modelos por defecto** (verificados el 14/11/2026 en developers.openai.com): clasificación `gpt-5.4-mini` (0,75 / 4,50 USD por millón de tokens de entrada / salida), redacción `gpt-5.4` (2,50 / 15 USD). Cambiables con `AI_MODEL_CLASSIFY`, `AI_MODEL_DRAFT` y `AI_PRICES`. Un modelo **sin precio conocido no se usa**.
