@@ -37,6 +37,7 @@ beforeAll(async () => {
     verifyToken: createTokenVerifier(config),
     authAdmin,
     queue: new RecordingQueue(),
+    ai: null,
   });
 });
 

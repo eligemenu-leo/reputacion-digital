@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Field, Input, Select, Switch } from '@/components/ui/field';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
+import { AiSettings } from './ai-settings';
 
 interface Org {
   id: string;
@@ -27,6 +28,7 @@ export function SettingsPage() {
       <PageHeader title="Configuración" />
       <div className="grid gap-6">
         {can('organization.manage') && <OrganizationSettings orgId={orgId} />}
+        <AiSettings orgId={orgId} />
         <SecuritySettings />
       </div>
     </>

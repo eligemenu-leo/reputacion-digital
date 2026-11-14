@@ -131,7 +131,9 @@ export async function organizationRoutes(app: FastifyInstance) {
           inbox: { status: 'available' },
           approvals: { status: 'available' },
           alerts: { status: 'not_available', availableIn: 'phase_5' },
-          sentiment: { status: 'not_available', availableIn: 'phase_3' },
+          sentiment: app.deps.ai
+            ? { status: app.deps.ai.provider.name === 'fake' ? 'simulator_only' : 'available' }
+            : { status: 'not_available', reason: 'not_configured' },
         },
       };
     });

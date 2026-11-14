@@ -16,6 +16,9 @@ import { clientRoutes } from './routes/clients';
 import { interactionRoutes } from './routes/interactions';
 import { connectionRoutes } from './routes/connections';
 import type { JobQueue } from './domain/queue';
+import type { AiRuntime } from './ai/service';
+import { aiRoutes } from './routes/ai';
+import { brandRoutes } from './routes/brand';
 
 export interface AppDeps {
   config: Config;
@@ -24,6 +27,8 @@ export interface AppDeps {
   authAdmin: AuthAdmin;
   /** Avisos al worker (pg-boss en ejecución; en memoria en pruebas). */
   queue: JobQueue;
+  /** Proveedor de IA (null = IA no configurada en este entorno). */
+  ai: AiRuntime | null;
 }
 
 declare module 'fastify' {
@@ -118,6 +123,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await v1.register(clientRoutes);
       await v1.register(interactionRoutes);
       await v1.register(connectionRoutes);
+      await v1.register(aiRoutes);
+      await v1.register(brandRoutes);
     },
     { prefix: '/v1' },
   );

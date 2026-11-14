@@ -2,7 +2,7 @@
  * Cola de trabajos en segundo plano.
  *
  * Patrón «outbox»: la fuente de verdad son las filas de `provider_sync_runs` y
- * `publication_jobs` (estado `queued`). El mensaje en la cola es solo un aviso
+ * `publication_jobs` (estado `queued`) y `external_interactions.ai_status = 'pending'`. El mensaje en la cola es solo un aviso
  * que se envía DESPUÉS de confirmar la transacción. Si se pierde (caída entre
  * commit y envío), el barrido periódico del worker vuelve a encolarlo. Los
  * manejadores son idempotentes: reclaman la fila con `update … where status =
@@ -12,6 +12,7 @@ export const QUEUES = {
   sync: 'sync.account',
   publish: 'publish.reply',
   sweep: 'maintenance.sweep',
+  classify: 'ai.classify',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

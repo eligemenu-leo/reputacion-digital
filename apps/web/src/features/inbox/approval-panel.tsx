@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Field, Textarea } from '@/components/ui/field';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
+import { AiDraftNotice } from './ai-panel';
 
 /**
  * Decisión del aprobador. El hash se calcula en el navegador sobre el texto
@@ -25,7 +26,7 @@ export function ApprovalPanel({
   compact,
 }: {
   interactionId: string;
-  draft: Pick<Draft, 'content' | 'version'>;
+  draft: Pick<Draft, 'content' | 'version'> & Partial<Pick<Draft, 'ai'>>;
   requiresSpecialist: boolean;
   isSimulated: boolean;
   provider: string;
@@ -84,6 +85,7 @@ export function ApprovalPanel({
       <p className="mt-2 whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 text-sm">
         {draft.content}
       </p>
+      <AiDraftNotice draft={draft} />
       {requiresSpecialist && (
         <label className="mt-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
           <input

@@ -21,6 +21,8 @@ export interface JobDeps {
   /** Margen de solape entre ventanas incrementales para no perder elementos en el borde. */
   overlapMinutes?: number;
   maxPages?: number;
+  /** Encolar la clasificación por IA de lo nuevo o modificado (si la IA está configurada). */
+  aiAutoClassify?: boolean;
 }
 
 const DEFAULT_INTERVAL_MIN = 60;
@@ -66,6 +68,7 @@ interface Counters {
   created: number;
   updated: number;
   errors: number;
+  toClassify: string[];
 }
 
 async function ingest(
@@ -74,7 +77,13 @@ async function ingest(
   item: NormalizedInteraction,
   pepper: string,
   c: Counters,
+  autoClassify: boolean,
 ) {
+  // La IA solo se pide si está activa para el cliente; el worker vuelve a comprobarlo.
+  const aiStatus = autoClassify
+    ? tx`(case when (select ai_enabled from public.clients where id = ${account.clientId})
+               then 'pending' else 'not_requested' end)::public.ai_analysis_status`
+    : tx`'not_requested'::public.ai_analysis_status`;
   const [cur] = await tx<
     (InteractionRow & {
       contentHash: string;
@@ -94,13 +103,13 @@ async function ingest(
       insert into public.external_interactions
         (organization_id, client_id, location_id, connected_account_id, provider, kind, external_id, external_parent_id, url,
          author_display_name, author_ref_hash, content, language, rating, rating_scale, content_hash, original_created_at,
-         priority, risk_flags, requires_specialist, existing_reply_content, existing_reply_at, is_simulated)
+         priority, risk_flags, requires_specialist, existing_reply_content, existing_reply_at, is_simulated, ai_status)
       values (${account.organizationId}, ${account.clientId}, ${account.locationId}, ${account.id}, ${account.provider},
               ${item.kind}, ${item.externalId}, ${item.externalParentId ?? null}, ${item.url ?? null},
               ${item.authorName ?? null}, ${authorRef(pepper, account.provider, item.authorExternalId)},
               ${item.content}, ${item.language ?? null}, ${item.rating ?? null}, ${item.ratingScale ?? null},
               ${item.contentHash}, ${item.createdAt}, ${t.priority}, ${t.riskFlags}, ${t.requiresSpecialist},
-              ${reply?.content ?? null}, ${reply?.updatedAt ?? null}, ${account.isSimulated})
+              ${reply?.content ?? null}, ${reply?.updatedAt ?? null}, ${account.isSimulated}, ${aiStatus})
       on conflict on constraint external_interactions_dedupe do nothing
       returning id`;
     if (!row) return; // otra ejecución la insertó a la vez: se tratará en la siguiente pasada
@@ -118,6 +127,7 @@ async function ingest(
       },
     );
     c.created++;
+    if (autoClassify) c.toClassify.push(row.id);
     return;
   }
 
@@ -133,8 +143,11 @@ async function ingest(
       content = ${item.content}, rating = ${item.rating ?? null}, content_hash = ${item.contentHash},
       existing_reply_content = ${reply?.content ?? null}, existing_reply_at = ${reply?.updatedAt ?? null},
       priority = greatest(priority, ${t.priority}), risk_flags = ${flags},
-      requires_specialist = requires_specialist or ${t.requiresSpecialist}, last_seen_at = now()
+      requires_specialist = requires_specialist or ${t.requiresSpecialist}, last_seen_at = now(),
+      ai_status = case when ${contentChanged && autoClassify} then ${aiStatus} else ai_status end,
+      ai_attempts = case when ${contentChanged && autoClassify} then 0 else ai_attempts end
      where id = ${cur.id}`;
+  if (contentChanged && autoClassify) c.toClassify.push(cur.id);
   if (contentChanged) {
     await tx`
       insert into public.interaction_versions (organization_id, client_id, interaction_id, content, rating, content_hash)
@@ -190,7 +203,7 @@ export async function runSync(deps: JobDeps, runId: string) {
   });
   if (!claimed) return { status: 'skipped' as const };
   const { run, account } = claimed;
-  const c: Counters = { found: 0, created: 0, updated: 0, errors: 0 };
+  const c: Counters = { found: 0, created: 0, updated: 0, errors: 0, toClassify: [] };
 
   const finish = async (
     status: 'succeeded' | 'partial' | 'failed' | 'cancelled',
@@ -263,7 +276,12 @@ export async function runSync(deps: JobDeps, runId: string) {
     c.found += res.value.items.length;
     for (const item of res.value.items) {
       try {
-        await withService(sql, null, (tx) => ingest(tx, account, item, deps.authorRefPepper, c));
+        c.toClassify = [];
+        await withService(sql, null, (tx) =>
+          ingest(tx, account, item, deps.authorRefPepper, c, deps.aiAutoClassify ?? false),
+        );
+        // Aviso tras el commit (outbox): si se pierde, el barrido lo recupera.
+        for (const id of c.toClassify) await notify(deps.queue, QUEUES.classify, id, deps.log);
       } catch (err) {
         c.errors++;
         deps.log?.warn({ err, runId: run.id, externalId: item.externalId }, 'ingest failed');
@@ -273,8 +291,12 @@ export async function runSync(deps: JobDeps, runId: string) {
     if (!cursor) break;
   }
   await finish(c.errors > 0 ? 'partial' : 'succeeded');
-  deps.log?.info({ runId: run.id, ...c }, 'sync finished');
-  return { status: c.errors > 0 ? ('partial' as const) : ('succeeded' as const), counters: c };
+  const { toClassify: _ignored, ...counters } = c;
+  deps.log?.info({ runId: run.id, ...counters }, 'sync finished');
+  return {
+    status: c.errors > 0 ? ('partial' as const) : ('succeeded' as const),
+    counters,
+  };
 }
 
 /** Programa sincronizaciones vencidas (llamado por el barrido periódico). */

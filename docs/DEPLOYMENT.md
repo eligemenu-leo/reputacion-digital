@@ -52,6 +52,7 @@ node --env-file=.env apps/api/dist/worker.js    # worker (1-N instancias)
 Las dependencias de terceros se resuelven desde `node_modules` (instalar con `pnpm install --prod --filter @rep/api...`); los paquetes del monorepo van dentro del bundle. Variables nuevas en F2:
 
 * `AUTHOR_REF_PEPPER` (obligatoria en producción, ≥ 16 caracteres): seudonimiza los identificadores de autores.
+* IA (API y worker): `OPENAI_API_KEY` (solo servidor; sin ella la IA queda desactivada y la interfaz lo indica), `AI_PROVIDER` (`auto` por defecto; `fake` solo en development/test), `AI_MODEL_CLASSIFY` (`gpt-5.4-mini`), `AI_MODEL_DRAFT` (`gpt-5.4`), `AI_PRICES` (JSON opcional), `AI_TIMEOUT_MS`, `AI_AUTO_CLASSIFY` (`true`). La clave se rota en el panel de OpenAI y se sustituye en el entorno; no se guarda en la base de datos.
 * `JOBS_ENABLED` (por defecto `true`): la API envía avisos a pg-boss. Si es `false`, las filas quedan en cola y el worker las recoge en su barrido.
 * pg-boss crea y migra su esquema `pgboss` al arrancar; el usuario de `DATABASE_URL` necesita permiso para ello.
 

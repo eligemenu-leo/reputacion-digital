@@ -12,7 +12,14 @@ import { Input, Select } from '@/components/ui/field';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/cn';
-import { PriorityBadge, RiskBadges, SimulatedBadge, Stars, StateBadge } from './parts';
+import {
+  PriorityBadge,
+  RiskBadges,
+  SentimentBadge,
+  SimulatedBadge,
+  Stars,
+  StateBadge,
+} from './parts';
 
 const VIEWS = [
   {
@@ -90,6 +97,11 @@ export function InboxPage() {
     queryKey: ['inbox', orgId, qs.toString()],
     queryFn: () => api<InboxResponse>(`/organizations/${orgId}/interactions?${qs}`),
     placeholderData: keepPreviousData,
+    // Mientras la IA analiza reseñas recién llegadas, refresca para mostrar el resultado.
+    refetchInterval: (query) =>
+      query.state.data?.items.some((i) => i.aiStatus === 'pending' || i.aiStatus === 'running')
+        ? 4000
+        : false,
   });
   const clients = useQuery({
     queryKey: ['clients', orgId, 'all'],
@@ -380,6 +392,7 @@ export function InboxPage() {
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <StateBadge state={i.state} />
+                      <SentimentBadge sentiment={i.sentiment} />
                       {i.priority !== 2 && <PriorityBadge priority={i.priority} />}
                       <RiskBadges flags={i.riskFlags} />
                       {i.isSimulated && <SimulatedBadge />}

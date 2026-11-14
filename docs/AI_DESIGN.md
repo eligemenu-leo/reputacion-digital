@@ -1,6 +1,24 @@
 # Diseño de la inteligencia artificial
 
-> Estado: **diseño (Fase 0)**. Implementación en Fase 3. Dependencia externa: clave de API de OpenAI y DPA firmado (ver `PROGRESS.md`).
+> Estado: **clasificación y borradores implementados (Fase 3, 14/11/2026)**; tendencias y resúmenes pendientes (segundo bloque de la Fase 3). Clave de OpenAI configurada en local; **DPA pendiente**: hasta firmarlo, la IA real solo procesa reseñas ficticias (`platform_settings.ai_real_data_allowed`).
+
+## Implementación (Fase 3)
+
+| Pieza | Ubicación |
+|---|---|
+| Adaptador de proveedor (`AiProvider`), cliente OpenAI Responses API sin SDK | `apps/api/src/ai/provider.ts` |
+| Proveedor simulado (reglas deterministas, solo development/test) | `apps/api/src/ai/fake-provider.ts` |
+| Prompts versionados + JSON Schema estricto + esquema Zod | `apps/api/src/ai/prompts/{classify,draft}.v1.ts` |
+| Neutralización de texto externo, enmascarado, validación de borradores, similitud | `apps/api/src/ai/text.ts` |
+| Precios, reserva de presupuesto, clasificación (worker), borradores (API) | `apps/api/src/ai/{pricing,service}.ts` |
+| Rutas | `POST /v1/interactions/:id/ai-draft`, `POST /v1/interactions/:id/ai-classify`, `GET /v1/organizations/:id/ai`, `PATCH /v1/organizations/:id/ai/budget`, `GET/POST /v1/clients/:id/brand` |
+
+* **Modelos por defecto** (verificados el 14/11/2026 en developers.openai.com): clasificación `gpt-5.4-mini` (0,75 / 4,50 USD por millón de tokens de entrada / salida), redacción `gpt-5.4` (2,50 / 15 USD). Cambiables con `AI_MODEL_CLASSIFY`, `AI_MODEL_DRAFT` y `AI_PRICES`. Un modelo **sin precio conocido no se usa**.
+* **Presupuesto:** 10 USD/mes por organización con corte automático por defecto (OpenAI factura en dólares). Antes de cada llamada se reserva el coste estimado (entrada ≈ caracteres/3, salida = máximo) bajo un bloqueo por organización; al terminar se guarda el coste real según los tokens informados.
+* **Clasificación:** al sincronizar, lo nuevo o modificado queda `ai_status = 'pending'` y se avisa al worker (`ai.classify`) tras el commit; el barrido recupera avisos perdidos. Reintentos: 3 como máximo con espera creciente ante errores transitorios o salida inválida. Caché por `input_hash`. Si el contenido cambia durante el análisis, el resultado se descarta.
+* **Borradores:** síncronos en la API (el usuario espera unos segundos). Si las reglas deterministas rechazan el texto, se reintenta **una vez** indicando el motivo; si vuelve a fallar, no se guarda nada y se explica por qué. El borrador generado entra por el mismo `saveDraft` que uno humano: invalida aprobaciones previas y **nunca** se envía a aprobación ni se publica solo.
+* `store: false` en cada llamada: el proveedor no conserva las respuestas para la API de conversaciones.
+
 
 ## Principios
 
@@ -78,7 +96,7 @@ Salida (`draft.v1`): `{ "reply": "…", "tone_applied": "…", "used_facts": ["c
 
 ## Prompts versionados
 
-* Ficheros en `apps/worker/src/ai/prompts/<servicio>.v<N>.ts` con esquema de salida asociado; `prompt_version` se guarda en cada generación.
+* Ficheros en `apps/api/src/ai/prompts/<servicio>.v<N>.ts` con esquema de salida asociado; `prompt_version` se guarda en cada generación.
 * Cambiar un prompt = nueva versión + evaluación sobre el conjunto de pruebas antes de activarla.
 
 ## Costes

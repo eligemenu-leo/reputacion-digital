@@ -56,6 +56,7 @@ beforeAll(async () => {
       },
     },
     queue,
+    ai: null,
   });
   deps = {
     sql,
