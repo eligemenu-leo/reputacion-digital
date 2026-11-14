@@ -101,13 +101,30 @@ Implementado y probado contra un servidor falso de Google; **sin acceso real tod
 | Conexión con una ficha real de Google | 🔒 | cliente OAuth de Google Cloud + aprobación de acceso a la API |
 | Notificaciones Pub/Sub de reseñas nuevas | ⏳ | siguiente iteración (hoy: sondeo periódico) |
 
+## Fase 4 — Integraciones, bloque 2: Facebook e Instagram 🟡 (16/11/2026)
+
+Implementado y probado contra una Graph API falsa de Meta; **sin app de Meta todavía**.
+
+| Entregable | Estado | Verificación |
+|---|---|---|
+| `MetaGraph`, `FacebookPageConnector`, `InstagramBusinessConnector` (Graph v26.0, `appsecret_proof`) | ✅ | 16 pruebas unitarias contra `FakeMetaApi` |
+| Un inicio de sesión para ambas redes; tokens de página sellados solo para lo elegido (ADR-026) | ✅ | `test/api/meta.test.ts` (18 pruebas) |
+| Lectura de comentarios de primer nivel y respuesta existente de la página | ✅ | pruebas de flujo |
+| Publicación sin duplicados (consulta tras corte o 5xx) | ✅ | pruebas de flujo |
+| Webhooks firmados, deduplicados, que encolan sincronización (ADR-027) | ✅ | pruebas de flujo |
+| Desconexión: baja de la página y revocación solo si nadie más depende del usuario | ✅ | pruebas de flujo |
+| Pantalla Fuentes: tarjeta «Facebook e Instagram», elección de páginas y cuentas | ✅ | typecheck + lint + build; revisión visual pendiente en el Mac |
+| Conexión con una página real | 🔒 | crear la app de Meta (pasos en `INTEGRATIONS.md`); clientes externos: App Review |
+| Webhooks reales | 🔒 | URL pública https (staging) |
+| Menciones de Instagram, valoraciones de página, ocultar/borrar comentarios | ⏳ | iteración posterior |
+
 ## Pendiente y bloqueado
 
 | Elemento | Estado | Motivo |
 |---|---|---|
 | IA con datos reales de clientes | 🔒 | DPA con OpenAI (la clave ya está configurada en local) |
 | Google Business Profile | 🔒 | código listo; falta cliente OAuth y aprobación de acceso de Google (pasos en `INTEGRATIONS.md`) |
-| Facebook / Instagram | 🔒 | app de Meta + App Review |
+| Facebook / Instagram | 🔒 | código listo; falta crear la app de Meta (y App Review para clientes sin rol en la app) |
 | Monitorización web | 🔒 | elección/contrato de proveedor (ADR-009) |
 | Staging / producción | 🔒 | aprobación de coste de proyectos Supabase y hosting |
 | Email transaccional en producción | 🔒 | proveedor SMTP |

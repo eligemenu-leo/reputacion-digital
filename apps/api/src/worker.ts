@@ -46,7 +46,14 @@ const ai = aiRuntimeFromConfig(config);
 deps.aiAutoClassify = Boolean(ai) && config.AI_AUTO_CLASSIFY;
 const aiDeps: AiDeps = { sql, ai, queue: deps.queue, log };
 log.info({ provider: ai?.provider.name ?? 'none', models: ai?.models ?? null }, 'ai runtime');
-log.info({ google: Boolean(integrations.google) }, 'integrations');
+log.info(
+  {
+    google: Boolean(integrations.google),
+    meta: Boolean(integrations.meta),
+    metaWebhooks: Boolean(integrations.meta?.webhookVerifyToken),
+  },
+  'integrations',
+);
 
 await boss.work<{ id: string }>(QUEUES.sync, { localConcurrency: 4 }, async ([job]) => {
   if (job) await runSync(deps, job.data.id);

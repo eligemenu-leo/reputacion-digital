@@ -11,8 +11,41 @@ import { useToast } from '@/components/ui/toast';
 
 export interface IntegrationsStatus {
   google: { configured: boolean; redirectUri: string; scope: string; missing: string[] };
-  facebook: { configured: boolean };
-  instagram: { configured: boolean };
+  meta: {
+    configured: boolean;
+    redirectUri: string;
+    webhookUrl: string;
+    webhooks: boolean;
+    graphVersion: string;
+    scopes: string[];
+    missing: string[];
+  };
+}
+
+/** URI que hay que copiar en la consola del proveedor. Corta solo tras «/» para que no se lea mal. */
+export function CopyUri({ value }: { value: string }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      className="inline max-w-full rounded text-left font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
+      onClick={() =>
+        void navigator.clipboard?.writeText(value).then(() => toast('success', 'URI copiada'))
+      }
+    >
+      {value.split('/').map((part, i, all) => (
+        <span key={i}>
+          {part}
+          {i < all.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </span>
+      ))}
+      <Copy className="ml-1 inline size-3 align-[-2px]" aria-hidden />
+    </button>
+  );
 }
 
 /** Mensajes para los códigos que devuelve el callback de OAuth. */
@@ -37,7 +70,6 @@ export function GoogleCard({
   canConnect: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const toast = useToast();
   if (!status) return <Skeleton className="h-24" />;
   if (!status.configured) {
     return (
@@ -50,29 +82,7 @@ export function GoogleCard({
             acceso a la API.
           </p>
           <p className="text-xs text-muted">
-            URI de redirección para Google Cloud:{' '}
-            <button
-              type="button"
-              className="inline max-w-full rounded text-left font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(status.redirectUri)
-                  .then(() => toast('success', 'URI copiada'))
-              }
-            >
-              {/* Corta solo tras «/» para que no se lea mal al copiarla a mano. */}
-              {status.redirectUri.split('/').map((part, i, all) => (
-                <span key={i}>
-                  {part}
-                  {i < all.length - 1 && (
-                    <>
-                      /<wbr />
-                    </>
-                  )}
-                </span>
-              ))}
-              <Copy className="ml-1 inline size-3 align-[-2px]" aria-hidden />
-            </button>
+            URI de redirección para Google Cloud: <CopyUri value={status.redirectUri} />
           </p>
         </div>
       </Card>

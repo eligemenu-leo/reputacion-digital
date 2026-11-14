@@ -135,6 +135,8 @@ public_mentions (id, organization_id, client_id, search_query_id, provider, url_
 
 **Credenciales (implementado, ADR-024):** `private.provider_credentials (id, organization_id, client_id, provider, sealed, key_id, scopes, access_expires_at, authorized_by, authorized_at, refreshed_at, revoked_at, last_error_kind)` con los tokens sellados por la API (AES-256-GCM, AAD = id). `private.oauth_states (state_hash pk, provider, organization_id, client_id, user_id, code_verifier_sealed, redirect_uri, expires_at, consumed_at)` para el flujo OAuth. `public.connected_accounts.credential_id → private.provider_credentials` (no expuesta a `authenticated`); restricción `connected_accounts_real_needs_credential`. Ni `anon` ni `authenticated` tienen privilegios sobre estas tablas.
 
+**Meta (implementado, ADR-026/027):** `provider_credentials.provider ∈ {google_business_profile, meta}`; para `meta` el sellado incluye el token de usuario y los tokens de las páginas elegidas, y `provider_user_ref` = HMAC del id de usuario de Facebook. `oauth_states.code_verifier_sealed` es opcional (Facebook Login no usa PKCE). `private.webhook_events (provider, event_id pk, account_external_id, interaction_external_id, event_type, received_at, matched_accounts)` deduplica avisos (7 días). Cada página de Facebook o cuenta de Instagram es una fila de `connected_accounts` con `config.pageId`.
+
 ### Fase 5 — Alertas e informes
 
 ```sql

@@ -64,12 +64,32 @@ const schema = z
     GOOGLE_OAUTH_CLIENT_ID: z.string().min(10).optional(),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(10).optional(),
     GOOGLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(20_000),
+    /** App de Meta (Facebook Login para empresas). Sin ella, Facebook e Instagram aparecen como no configurados. */
+    META_APP_ID: z
+      .string()
+      .regex(/^\d{5,30}$/, 'META_APP_ID es numérico')
+      .optional(),
+    META_APP_SECRET: z.string().min(16).optional(),
+    /** Token que se escribe en el panel de Meta al suscribir el webhook (lo eliges tú; no es el secreto de la app). */
+    META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
+    META_GRAPH_VERSION: z
+      .string()
+      .regex(/^v\d+\.\d$/)
+      .default('v26.0'),
+    META_POSTS_PER_SYNC: z.coerce.number().int().min(1).max(50).default(25),
+    META_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(20_000),
   })
   .refine((c) => Boolean(c.GOOGLE_OAUTH_CLIENT_ID) === Boolean(c.GOOGLE_OAUTH_CLIENT_SECRET), {
     message: 'GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET van juntos',
   })
   .refine((c) => !c.GOOGLE_OAUTH_CLIENT_ID || Boolean(c.CREDENTIALS_ENCRYPTION_KEYS), {
     message: 'Conectar Google requiere CREDENTIALS_ENCRYPTION_KEYS para cifrar los tokens',
+  })
+  .refine((c) => Boolean(c.META_APP_ID) === Boolean(c.META_APP_SECRET), {
+    message: 'META_APP_ID y META_APP_SECRET van juntos',
+  })
+  .refine((c) => !c.META_APP_ID || Boolean(c.CREDENTIALS_ENCRYPTION_KEYS), {
+    message: 'Conectar Meta requiere CREDENTIALS_ENCRYPTION_KEYS para cifrar los tokens',
   })
   .refine((c) => c.NODE_ENV !== 'production' || c.API_PUBLIC_URL.startsWith('https://'), {
     message: 'API_PUBLIC_URL debe usar https en producción',

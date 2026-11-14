@@ -105,6 +105,15 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Decisión:** cada ubicación de Google es una fila de `connected_accounts` (`external_account_id = accounts/A/locations/L`) que comparte la autorización con las demás fichas elegidas. La aptitud para responder (`VoiceOfMerchantState.hasVoiceOfMerchant`) se guarda en `capabilities`; sin ella no se llama nunca a `updateReply`.
 * **Motivo:** el motor de sincronización y publicación ya trabaja por fuente; el estado, los errores y la próxima ejecución se muestran por ficha, y un fallo en una no afecta a las demás.
 
+## ADR-026 · Un inicio de sesión de Meta para Facebook e Instagram; tokens de página solo de lo elegido
+* **Decisión:** se usa Facebook Login para empresas (no Instagram Login) con una sola app de Meta. La credencial (`provider = 'meta'`) sella el token de usuario y, tras elegir, los tokens de las páginas conectadas; cada página de Facebook y cada cuenta de Instagram es una fuente propia que apunta a esa credencial y opera con el token de su página.
+* **Motivo:** un solo permiso del cliente cubre ambas redes; los tokens de página no caducan por tiempo, así que no hace falta refrescar en segundo plano. No guardar tokens de páginas no elegidas reduce lo que se expone si se compromete la clave.
+* **Consecuencia:** revocar la app afecta a todas las páginas de ese usuario, por eso solo se revoca cuando ninguna otra autorización vigente es suya. Si Meta invalida un token, la fuente pasa a «Credenciales caducadas» y hay que volver a conectar.
+
+## ADR-027 · Webhooks: aviso = señal, la API es la fuente de verdad
+* **Decisión:** el webhook solo verifica la firma, deduplica (`private.webhook_events`) y encola una sincronización de la fuente. El contenido nunca se toma del aviso.
+* **Motivo:** los avisos pueden llegar repetidos, desordenados o incompletos; reutilizar la sincronización mantiene una sola ruta de ingesta (deduplicación, ediciones, triaje, IA). Si un aviso llega con una sincronización en curso, se adelanta la siguiente a un minuto.
+
 ## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
 * **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
 * **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.
