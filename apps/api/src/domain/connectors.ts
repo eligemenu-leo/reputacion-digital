@@ -40,10 +40,9 @@ const NOT_CONFIGURED: ConnectorError = {
 };
 
 /**
- * Simulador (solo fuera de producción) y Google Business Profile cuando hay
- * cliente OAuth y clave de cifrado. Facebook e Instagram llegarán en el
- * siguiente bloque; hasta entonces devuelven null y la sincronización se
- * marca como «no disponible», sin simular éxito.
+ * Simulador (solo fuera de producción), Google Business Profile, páginas de
+ * Facebook e Instagram profesional cuando están configurados. Un proveedor
+ * sin configurar devuelve un error explícito, nunca un éxito simulado.
  */
 export function createConnectorRegistry(sql: Sql, integrations?: Integrations): ConnectorRegistry {
   const store = new DbSimulatorStore(sql);
@@ -71,6 +70,22 @@ export function createConnectorRegistry(sql: Sql, integrations?: Integrations): 
           };
         }
         return useCredential(sql, integrations, a.credentialId);
+      }
+      if (account.provider === 'facebook_page' || account.provider === 'instagram_business') {
+        if (!integrations?.meta || !integrations.box) return { error: NOT_CONFIGURED };
+        const [a] = await sql<{ credentialId: string | null }[]>`
+          select credential_id from public.connected_accounts where id = ${account.id}`;
+        const pageId = (account.config as { pageId?: string }).pageId;
+        if (!a?.credentialId || !pageId) {
+          return {
+            error: {
+              kind: 'credentials_expired',
+              message: 'La fuente no tiene autorización: vuelve a conectar con Meta',
+              retryable: false,
+            },
+          };
+        }
+        return useMetaCredential(sql, integrations, a.credentialId, account.provider, pageId);
       }
       return null;
     },
@@ -113,6 +128,38 @@ export async function useCredential(
     }
     return { connector, credentials: creds };
   });
+}
+
+/**
+ * Abre una credencial de Meta y entrega el token de la página indicada. Los
+ * tokens de página no se refrescan por tiempo: si Meta los invalida, la API
+ * devuelve 190 y la fuente pasa a «credenciales caducadas».
+ */
+export async function useMetaCredential(
+  sql: Sql,
+  integrations: Integrations,
+  credentialId: string,
+  provider: 'facebook_page' | 'instagram_business',
+  pageId: string,
+): Promise<Exclude<Resolved, null>> {
+  const meta = integrations.meta;
+  const box = integrations.box;
+  if (!meta || !box) return { error: NOT_CONFIGURED };
+  const loaded = await withService(sql, null, (tx) => loadCredential(tx, box, credentialId));
+  const page = loaded?.pages[pageId];
+  if (!loaded || loaded.row.revokedAt || !page) {
+    return {
+      error: {
+        kind: 'credentials_expired',
+        message: 'La autorización de Meta ya no incluye esta página: vuelve a conectar',
+        retryable: false,
+      },
+    };
+  }
+  return {
+    connector: provider === 'facebook_page' ? meta.facebook() : meta.instagram(),
+    credentials: { accessToken: page.token, scopes: loaded.credentials.scopes, meta: { pageId } },
+  };
 }
 
 /** El simulador nunca puede usarse en producción. */

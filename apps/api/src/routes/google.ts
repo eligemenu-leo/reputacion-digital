@@ -10,7 +10,7 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createHash, randomBytes } from 'node:crypto';
-import { GOOGLE_SCOPE, type ExternalLocation } from '@rep/connectors';
+import { GOOGLE_SCOPE, META_SCOPES, type ExternalLocation } from '@rep/connectors';
 import { AppError, uuidSchema } from '@rep/shared';
 import { z } from 'zod';
 import { requireAuth } from '../app';
@@ -69,8 +69,19 @@ export async function googleRoutes(app: FastifyInstance) {
           ...(config.CREDENTIALS_ENCRYPTION_KEYS ? [] : ['CREDENTIALS_ENCRYPTION_KEYS']),
         ],
       },
-      facebook: { configured: false, missing: ['Fase 4 · bloque 2'] },
-      instagram: { configured: false, missing: ['Fase 4 · bloque 2'] },
+      // Facebook e Instagram comparten la app de Meta y el inicio de sesión.
+      meta: {
+        configured: Boolean(integrations.meta),
+        redirectUri: integrations.metaRedirectUri,
+        webhookUrl: integrations.metaWebhookUrl,
+        webhooks: Boolean(integrations.meta?.webhookVerifyToken),
+        graphVersion: config.META_GRAPH_VERSION,
+        scopes: META_SCOPES,
+        missing: [
+          ...(config.META_APP_ID ? [] : ['META_APP_ID', 'META_APP_SECRET']),
+          ...(config.CREDENTIALS_ENCRYPTION_KEYS ? [] : ['CREDENTIALS_ENCRYPTION_KEYS']),
+        ],
+      },
     };
   });
 

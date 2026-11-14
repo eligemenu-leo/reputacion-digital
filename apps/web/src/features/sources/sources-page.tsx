@@ -25,6 +25,7 @@ import {
   SelectGoogleLocationsSheet,
   type IntegrationsStatus,
 } from './google-connect';
+import { META_ERRORS, MetaCard, SelectMetaAssetsSheet } from './meta-connect';
 
 interface Connection {
   id: string;
@@ -51,8 +52,6 @@ interface Connection {
 }
 
 const PENDING_PROVIDERS = [
-  { name: 'Facebook', reason: 'Pendiente de app de Meta y App Review' },
-  { name: 'Instagram', reason: 'Pendiente de app de Meta y App Review' },
   { name: 'Monitorización web', reason: 'Pendiente de elegir proveedor de búsqueda' },
 ];
 
@@ -63,18 +62,23 @@ export function SourcesPage() {
   const [creating, setCreating] = useState(false);
   const [params, setParams] = useSearchParams();
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [selectingMeta, setSelectingMeta] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<Connection | null>(null);
   const integrations = useQuery({
     queryKey: ['integrations'],
     queryFn: () => api<IntegrationsStatus>('/integrations'),
   });
-  // Vuelta desde Google: ?google=<autorización> o ?google_error=<código>.
+  // Vuelta desde Google o Meta: ?google=<autorización>, ?meta=<autorización> o ?…_error=<código>.
   useEffect(() => {
     const ok = params.get('google');
     const err = params.get('google_error');
-    if (!ok && !err) return;
+    const metaOk = params.get('meta');
+    const metaErr = params.get('meta_error');
+    if (!ok && !err && !metaOk && !metaErr) return;
     if (ok) setSelecting(ok);
     if (err) toast('error', GOOGLE_ERRORS[err] ?? 'No se pudo conectar con Google.');
+    if (metaOk) setSelectingMeta(metaOk);
+    if (metaErr) toast('error', META_ERRORS[metaErr] ?? 'No se pudo conectar con Facebook.');
     setParams({}, { replace: true });
   }, [params, setParams, toast]);
   const q = useQuery({
@@ -288,6 +292,11 @@ export function SourcesPage() {
           orgId={orgId}
           canConnect={integrations.isSuccess}
         />
+        <MetaCard
+          status={integrations.data?.meta}
+          orgId={orgId}
+          canConnect={integrations.isSuccess}
+        />
         {PENDING_PROVIDERS.map((p) => (
           <Card key={p.name} className="flex items-start gap-3 p-4">
             <Lock className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
@@ -306,6 +315,13 @@ export function SourcesPage() {
           onConnected={refresh}
         />
       )}
+      {selectingMeta && (
+        <SelectMetaAssetsSheet
+          credentialId={selectingMeta}
+          onClose={() => setSelectingMeta(null)}
+          onConnected={refresh}
+        />
+      )}
       {disconnecting && (
         <ConfirmDialog
           open
@@ -314,7 +330,7 @@ export function SourcesPage() {
           description={
             disconnecting.isSimulated
               ? 'Se dejarán de sincronizar reseñas de esta fuente simulada.'
-              : 'Se dejarán de leer reseñas y no se podrá publicar en esta ficha. Si era la última ficha con esa autorización, se revocará el acceso en el proveedor. El historial se conserva.'
+              : 'Se dejará de leer esta fuente y no se podrá publicar en ella. Si era la última fuente con esa autorización, se revocará el acceso en el proveedor. El historial se conserva.'
           }
           confirmLabel="Desconectar"
           danger

@@ -1,14 +1,14 @@
 # Integraciones con proveedores
 
-> Documentación verificada el **13/11/2026** contra la documentación oficial. Antes de implementar cada conector (Fase 4) se debe volver a verificar, porque los proveedores cambian versiones y permisos con frecuencia.
+> Documentación verificada el **13/11/2026** (Meta, de nuevo, el 14/11/2026) contra la documentación oficial. Antes de implementar cada conector (Fase 4) se debe volver a verificar, porque los proveedores cambian versiones y permisos con frecuencia.
 
 ## Estado
 
 | Proveedor | Estado | Bloqueo externo |
 |---|---|---|
 | Google Business Profile | 🟡 **Implementado, pendiente de acceso** (F4 · bloque 1, probado contra un Google falso) | Cliente OAuth en Google Cloud + aprobación de acceso a las Business Profile APIs (cuota 0 QPM hasta aprobación) |
-| Facebook (Páginas) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review de permisos avanzados + verificación de empresa |
-| Instagram (cuentas profesionales) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review |
+| Facebook (Páginas) | 🟡 **Implementado, pendiente de app** (F4 · bloque 2, probado contra un Meta falso) | App de Meta; para cuentas sin rol en la app: verificación de empresa + App Review |
+| Instagram (cuentas profesionales) | 🟡 **Implementado, pendiente de app** (F4 · bloque 2, misma app y mismo inicio de sesión) | Igual que Facebook |
 | Monitorización web | 🔒 **Bloqueado** | Elegir y contratar proveedor de búsqueda (ver abajo) |
 | Simulador | ✅ Fase 2 | — (solo dev/test, datos marcados como ficticios) |
 
@@ -76,25 +76,33 @@ Endpoints reverificados el 14/11/2026 (referencia actualizada el 02/11/2026):
 5. Credenciales → «ID de cliente de OAuth» tipo **Aplicación web** con el URI de redirección que muestra la pantalla Fuentes (en local: `http://localhost:8787/v1/oauth/google/callback`).
 6. Poner `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` y `CREDENTIALS_ENCRYPTION_KEYS` en `apps/api/.env` (nunca en el chat ni en el repositorio) y reiniciar API y worker.
 
-## Meta — Facebook (Páginas)
+## Meta — Facebook (Páginas) e Instagram profesional
 
-**Verificado:**
+**Verificado el 14/11/2026** en developers.facebook.com:
 * Versión vigente de Graph API: **v26.0** (publicada 29/07/2026); v25.0 caduca 29/07/2028. Fuente: <https://developers.facebook.com/docs/graph-api/changelog/versions>
-* Comentarios de Página: token de Página con `pages_manage_engagement`, `pages_read_engagement`, `pages_read_user_engagement`; el usuario necesita las tareas `MODERATE` y `CREATE_CONTENT`. Leer `GET /{page_post_id}/comments`; responder como Página `POST /{comment_id}/comments`. No se puede comentar si la Página no está publicada. Fuente: <https://developers.facebook.com/documentation/pages-api/comments-mentions.md>
-* Webhooks de Página (campo `feed`) para nuevos comentarios.
+* Facebook Login: diálogo `https://www.facebook.com/v26.0/dialog/oauth` (`client_id`, `redirect_uri`, `state`, `scope`, `response_type=code`); canje en `GET /oauth/access_token`; token de larga duración con `grant_type=fb_exchange_token` (≈ 60 días). `GET /me/accounts` devuelve un token por página **sin caducidad fija** (Meta puede invalidarlo si el usuario cambia la contraseña, pierde el rol o quita la app). No hay PKCE documentado para este flujo.
+* Facebook: leer `GET /{post-id}/comments` (`filter=toplevel`, `order`); responder como página `POST /{comment-id}/comments` con `pages_manage_engagement` y la tarea `MODERATE`. Leer el feed requiere `pages_read_engagement` + `pages_read_user_content` y una tarea `MODERATE`, `MANAGE` o `CREATE_CONTENT`.
+* Instagram (vía Facebook Login, host `graph.facebook.com`): `GET /{ig-user-id}/media`, `GET /{media-id}/comments` (máx. 50 por página, sin filtro por fecha), responder `POST /{comment-id}/replies`. Permisos `instagram_basic`, `instagram_manage_comments`, `pages_show_list`, `pages_read_engagement`; si el rol en la página viene de un Business Manager, además `ads_read` o `ads_management`. Solo se responde a comentarios de primer nivel, no ocultos y fuera de directos.
+* Webhooks: verificación `GET` con `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`; avisos `POST` firmados con `X-Hub-Signature-256: sha256=HMAC(app secret, cuerpo)`. Meta reintenta hasta 36 h y agrupa hasta 1000 cambios. La página se suscribe con `POST /{page-id}/subscribed_apps?subscribed_fields=feed` (`pages_manage_metadata`).
 
-**Diseño:** adaptador propio (`meta-facebook`), versión de API fijada por configuración (`META_GRAPH_VERSION=v26.0`) y revisada en cada release; tokens de Página de larga duración; verificación de webhooks con `X-Hub-Signature-256` (HMAC-SHA256 del cuerpo crudo con el App Secret, comparación en tiempo constante), `hub.verify_token` para la suscripción y deduplicación por id de evento/comentario.
+### Implementación (Fase 4 · bloque 2, 16/11/2026)
 
-## Meta — Instagram
+* `packages/connectors/src/meta.ts`: `MetaGraph` (inicio de sesión, páginas, permisos concedidos, revocación, suscripción de webhooks; todas las llamadas con `appsecret_proof` y el token en la cabecera, nunca en la URL), `FacebookPageConnector` e `InstagramBusinessConnector` (contrato común), `verifyMetaSignature`, `metaWebhookChallenge`, `parseMetaWebhook` y `mapMetaError` (190 → credenciales caducadas, 4/17/32/613 → límite, 10/200-299 → permisos, 1/2/5xx → temporal o **ambiguo** si era una escritura; los tokens `EAA…` se borran de los mensajes).
+* Sincronización: en cada pasada se revisan las **25 publicaciones más recientes** (`META_POSTS_PER_SYNC`, máx. 50), una por página del cursor, con hasta 500 comentarios de primer nivel cada una. Los comentarios de la propia página o cuenta no son interacciones; su respuesta más reciente en el hilo se guarda como «respuesta existente».
+* Publicación: sin clave idempotente en Meta. Tras un corte o 5xx al escribir, el motor consulta las respuestas del comentario y da por publicada la que tenga el mismo texto y sea de la página; si no está, reintenta. Nunca hay segunda publicación sin esa comprobación.
+* Conexión: `POST /v1/clients/:id/connections/meta/start` → Facebook → `GET /v1/oauth/meta/callback` (state de un solo uso, solo se guarda el hash). Se guarda sellado el token de usuario; los **tokens de página solo se guardan para las páginas elegidas** (`POST /v1/meta/credentials/:id/connect`). La lista (`GET …/assets`) indica por página y cuenta si se puede leer y responder según permisos y rol.
+* Webhooks: `GET/POST /v1/webhooks/meta`. El cuerpo se verifica sobre los bytes recibidos; cada aviso se registra en `private.webhook_events` (id = hash de objeto, página, campo, comentario, verbo y hora) y solo el primero encola una sincronización (`trigger = 'webhook'`). El contenido se vuelve a leer de la API, nunca del aviso. Sin `META_WEBHOOK_VERIFY_TOKEN` el webhook responde 404 y se sincroniza solo por sondeo.
+* Desconexión: al soltar la última fuente de una autorización se da de baja la suscripción de las páginas que ya no usa nadie y se revoca la app (`DELETE /me/permissions`) **solo si ninguna otra autorización vigente es del mismo usuario de Facebook** (revocar invalida todos sus tokens de página). `provider_user_ref` guarda un HMAC del id de usuario, no el id.
+* No incluido todavía: menciones de Instagram, valoraciones/recomendaciones de la página, respuestas entre usuarios dentro de un hilo, ocultar o borrar comentarios.
 
-**Verificado** (<https://developers.facebook.com/docs/instagram-platform/comment-moderation>):
-* Dos vías: *Instagram API with Instagram Login* (`instagram_business_basic`, `instagram_business_manage_comments`, host `graph.instagram.com`) o *Facebook Login for Business* (`instagram_basic`, `instagram_manage_comments`, `pages_read_engagement`, host `graph.facebook.com`).
-* Leer `GET /{ig-media-id}/comments`, respuestas `GET /{ig-comment-id}/replies`, responder `POST /{ig-comment-id}/replies`.
-* Webhooks: campos `comments` y `live_comments`. Las menciones requieren la funcionalidad específica de menciones; no todos los contenidos (p. ej. historias, anuncios en ciertos formatos) son legibles o respondibles.
+### Cómo crear la app de Meta (lo hace Leo)
 
-**Diseño:** adaptador separado de Facebook (no se asume igualdad funcional). `getCapabilities()` reportará solo lo concedido. Recomendado: Facebook Login for Business para que una misma app de Meta gestione Páginas e Instagram vinculados.
-
-**Dependencias:** app de Meta (tipo Business), verificación de la empresa, App Review de cada permiso avanzado con vídeo de demostración, política de privacidad pública, URL de borrado de datos.
+1. <https://developers.facebook.com/apps> con la cuenta de Facebook que administra las páginas → «Crear app» → caso de uso **«Gestionar todo en tu página»** / tipo **Empresa**, asociada al portfolio comercial de ELIGEMENU.
+2. Añadir el producto **Inicio de sesión con Facebook para empresas** y, en su configuración, el URI de redirección que muestra la pantalla Fuentes (`…/v1/oauth/meta/callback`). En local, Meta acepta `http://localhost` mientras la app está en modo desarrollo; en producción, solo https.
+3. Permisos: `pages_show_list`, `pages_read_engagement`, `pages_read_user_content`, `pages_manage_engagement`, `pages_manage_metadata`, `instagram_basic`, `instagram_manage_comments`.
+4. En modo desarrollo solo funcionan las personas con rol en la app (administrador, desarrollador o tester). Para clientes externos: verificación de la empresa + **App Review** de cada permiso con vídeo de demostración, política de privacidad pública y URL de eliminación de datos.
+5. Webhooks (solo con URL pública https): objeto **Page**, campo `feed`; objeto **Instagram**, campo `comments`. URL = la que muestra Fuentes (`…/v1/webhooks/meta`) y el token de verificación que elijas.
+6. En `apps/api/.env` (nunca en el chat ni en el repositorio): `META_APP_ID`, `META_APP_SECRET` (Configuración → Básica → Clave secreta) y, si hay webhook, `META_WEBHOOK_VERIFY_TOKEN`. Reiniciar API y worker.
 
 ## Monitorización web
 
