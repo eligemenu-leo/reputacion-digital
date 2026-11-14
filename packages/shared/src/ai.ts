@@ -136,3 +136,28 @@ export const brandVersionInputSchema = z
   })
   .strict();
 export type BrandVersionInput = z.infer<typeof brandVersionInputSchema>;
+
+// -----------------------------------------------------------------------------
+// Informes
+// -----------------------------------------------------------------------------
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha no válida (AAAA-MM-DD)');
+export const reportPeriodSchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+export type ReportPeriod = z.infer<typeof reportPeriodSchema>;
+
+export const REPORT_STATUS_LABELS_ES = {
+  ready: 'Con resumen de IA',
+  metrics_only: 'Solo métricas',
+  insufficient_sample: 'Muestra insuficiente',
+  blocked: 'Resumen bloqueado',
+  failed: 'Resumen fallido',
+} as const;
+export type ReportStatus = keyof typeof REPORT_STATUS_LABELS_ES;
+
+export const FINDING_KIND_LABELS_ES = {
+  strength: 'Punto fuerte',
+  issue: 'Problema recurrente',
+  watch: 'A vigilar',
+} as const;

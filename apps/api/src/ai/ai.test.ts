@@ -6,7 +6,7 @@ import {
   classificationJsonSchema,
   classificationSchema,
 } from './prompts/classify.v1';
-import { buildDraftUser, draftJsonSchema, type DraftInput } from './prompts/draft.v1';
+import { buildDraftUser, draftJsonSchema, type DraftInput } from './prompts/draft.v2';
 import { applyClassificationRules, createAiRuntime } from './service';
 import { costUsd, estimateCost, DEFAULT_PRICES } from './pricing';
 import { FakeAiProvider } from './fake-provider';
@@ -183,7 +183,11 @@ describe('configuración del proveedor', () => {
       loadConfig({ ...baseEnv, OPENAI_API_KEY: 'sk-test-' + 'x'.repeat(20) } as NodeJS.ProcessEnv),
       make,
     );
-    expect(withKey?.models).toEqual({ classify: 'gpt-5.4-mini', draft: 'gpt-5.4' });
+    expect(withKey?.models).toEqual({
+      classify: 'gpt-5.4-mini',
+      draft: 'gpt-5.4',
+      summary: 'gpt-5.4',
+    });
     expect(() =>
       loadConfig({
         ...baseEnv,
@@ -282,5 +286,24 @@ describe('OpenAiProvider (fetch simulado, sin red)', () => {
         throw new TypeError('network');
       }) as unknown as typeof fetch),
     ).toBe('transient');
+  });
+});
+
+describe('validación de cifras del resumen', () => {
+  it('solo admite números presentes en las métricas o en las fechas del periodo', async () => {
+    const { allowedNumbers, unknownNumbers } = await import('../domain/metrics');
+    const allowed = allowedNumbers({
+      period: { from: '2026-10-16', to: '2026-11-14', days: 30 },
+      total: 12,
+      rating_avg: 3.3,
+      negative_pct: 42,
+    } as never);
+    expect(
+      unknownNumbers(
+        '12 reseñas, media 3,3 y un 42 % negativas (del 16 de octubre al 14)',
+        allowed,
+      ),
+    ).toEqual([]);
+    expect(unknownNumbers('El 87 % y 3.25 de media', allowed)).toEqual(['87', '3.25']);
   });
 });

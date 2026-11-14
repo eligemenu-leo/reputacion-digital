@@ -43,7 +43,7 @@ const queue = new RecordingQueue();
 const fake = new FakeAiProvider();
 const runtime: AiRuntime = {
   provider: fake,
-  models: { classify: 'fake-classify', draft: 'fake-draft' },
+  models: { classify: 'fake-classify', draft: 'fake-draft', summary: 'fake-summary' },
   prices: DEFAULT_PRICES,
 };
 
@@ -329,7 +329,7 @@ describe('Fase 3 · borradores con IA', () => {
     expect(d.body.interaction.state).toBe('draft_generated');
     expect(d.body.drafts[0]).toMatchObject({
       source: 'ai',
-      ai: { provider: 'fake', model: 'fake-draft', promptVersion: 'draft.v1' },
+      ai: { provider: 'fake', model: 'fake-draft', promptVersion: 'draft.v2' },
     });
     const jobs = await seed`select id from public.publication_jobs where interaction_id = ${id}`;
     expect(jobs).toHaveLength(0);

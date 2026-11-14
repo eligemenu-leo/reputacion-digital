@@ -42,12 +42,12 @@ import {
   DRAFT_SYSTEM,
   type BrandContext,
   type DraftInput,
-} from './prompts/draft.v1';
+} from './prompts/draft.v2';
 import { checkDraft, hasInvisibleChars, LENGTH_LIMITS } from './text';
 
 export interface AiRuntime {
   provider: AiProvider;
-  models: { classify: string; draft: string };
+  models: { classify: string; draft: string; summary: string };
   prices: PriceTable;
 }
 
@@ -72,6 +72,7 @@ export function createAiRuntime(
     OPENAI_BASE_URL: string;
     AI_MODEL_CLASSIFY: string;
     AI_MODEL_DRAFT: string;
+    AI_MODEL_SUMMARY: string;
     AI_TIMEOUT_MS: number;
     AI_PRICES?: PriceTable;
   },
@@ -84,7 +85,7 @@ export function createAiRuntime(
   if (config.AI_PROVIDER === 'fake') {
     return {
       provider: make.fake(),
-      models: { classify: 'fake-classify', draft: 'fake-draft' },
+      models: { classify: 'fake-classify', draft: 'fake-draft', summary: 'fake-summary' },
       prices,
     };
   }
@@ -95,7 +96,11 @@ export function createAiRuntime(
       baseUrl: config.OPENAI_BASE_URL,
       timeoutMs: config.AI_TIMEOUT_MS,
     }),
-    models: { classify: config.AI_MODEL_CLASSIFY, draft: config.AI_MODEL_DRAFT },
+    models: {
+      classify: config.AI_MODEL_CLASSIFY,
+      draft: config.AI_MODEL_DRAFT,
+      summary: config.AI_MODEL_SUMMARY,
+    },
     prices,
   };
 }
@@ -130,7 +135,7 @@ interface ReserveInput {
   organizationId: string;
   clientId: string;
   interactionId: string | null;
-  kind: 'classification' | 'draft';
+  kind: 'classification' | 'draft' | 'summary';
   model: string;
   promptVersion: string;
   brandVersionId?: string | null;
@@ -233,7 +238,7 @@ interface CallFailure {
 }
 
 /** Llama al proveedor y valida la salida. Nunca lanza: devuelve el error clasificado. */
-async function callStructured<T>(
+export async function callStructured<T>(
   ai: AiRuntime,
   req: AiRequest,
   schema: ZodType<T>,

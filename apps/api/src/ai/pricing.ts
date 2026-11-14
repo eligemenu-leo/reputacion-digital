@@ -16,6 +16,7 @@ export const DEFAULT_PRICES: PriceTable = {
   // Proveedor simulado (dev/test): coste ficticio para poder probar el presupuesto.
   'fake-classify': { input: 1, output: 1 },
   'fake-draft': { input: 1, output: 1 },
+  'fake-summary': { input: 1, output: 1 },
 };
 
 export function priceFor(table: PriceTable, model: string): ModelPrice | null {

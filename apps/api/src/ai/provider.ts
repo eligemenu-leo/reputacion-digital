@@ -13,7 +13,7 @@ export interface AiRequest {
   jsonSchema: Record<string, unknown>;
   maxOutputTokens: number;
   /** Etiqueta para el proveedor simulado; el real la ignora. */
-  task: 'classification' | 'draft';
+  task: 'classification' | 'draft' | 'summary';
 }
 
 export interface AiResponse {

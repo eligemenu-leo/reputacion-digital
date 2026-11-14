@@ -75,7 +75,10 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 | Guarda de datos reales hasta el DPA | ✅ | pruebas de flujo |
 | Interfaz: análisis en la ficha y sentimiento en la bandeja, avisos del borrador de IA (también para quien aprueba), estado y presupuesto en Configuración | ✅ | typecheck + e2e `phase3-smoke.mjs` |
 | Prueba real con OpenAI (reseñas ficticias) | ✅ | e2e en el Mac de Leo: 12 reseñas clasificadas en 9 s (gpt-5.4-mini), borrador y variante (gpt-5.4), 14 generaciones, 0,0183 USD; `supabase db lint` sin errores |
-| Tendencias y resúmenes | ⏳ | segundo bloque de la Fase 3 |
+| Métricas observadas por cliente y periodo con comparación y temas | ✅ | pruebas de flujo (`reports.test.ts`) |
+| Informes con resumen de IA validado contra las cifras y hallazgos con ≥ 3 reseñas | ✅ | pruebas de flujo + unitarias |
+| Página de Informes (métricas, informe guardado, enlaces a las reseñas de respaldo) | ✅ | e2e `phase3-smoke.mjs` (paso 6) |
+| Prompt de redacción v2 (concordancia verbal) | ✅ | tras la prueba real |
 
 **Errores encontrados y corregidos durante la verificación:**
 1. El trigger `updated_at` impedía simular avisos antiguos en las pruebas del barrido de análisis → el barrido recibe el umbral como parámetro (como en publicaciones).

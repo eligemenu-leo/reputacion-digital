@@ -19,6 +19,7 @@ import type { JobQueue } from './domain/queue';
 import type { AiRuntime } from './ai/service';
 import { aiRoutes } from './routes/ai';
 import { brandRoutes } from './routes/brand';
+import { reportRoutes } from './routes/reports';
 
 export interface AppDeps {
   config: Config;
@@ -125,6 +126,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await v1.register(connectionRoutes);
       await v1.register(aiRoutes);
       await v1.register(brandRoutes);
+      await v1.register(reportRoutes);
     },
     { prefix: '/v1' },
   );
