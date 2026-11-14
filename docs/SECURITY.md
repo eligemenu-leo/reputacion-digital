@@ -18,7 +18,8 @@
 | Saltarse el flujo con la API REST de Supabase | `authenticated` solo tiene SELECT en tablas de flujo; las escrituras pasan por API/worker | ✅ F2, probado (RLS) |
 | Uso de datos simulados como reales | `is_simulated` solo con `provider = 'simulator'` (CHECK), simulador bloqueado en producción, etiqueta «Simulado» en toda la interfaz | ✅ F2 |
 | Fuga de secretos en logs | Redacción de `authorization`/`cookie` en Pino; `private.redact()` en auditoría; errores sin detalles internos | ✅ F1, probado |
-| Tokens OAuth expuestos | Supabase Vault en esquema no expuesto; solo `service_role` | 📐 diseño F4 |
+| Tokens OAuth expuestos | Sellados con AES-256-GCM por la API (clave fuera de la BD, AAD por fila) en `private.*`, sin privilegios para `authenticated`; nunca en respuestas, logs ni auditoría; revocación al desconectar (ADR-024) | ✅ F4 · probado |
+| CSRF / secuestro del flujo OAuth | `state` aleatorio de 256 bits, guardado solo como hash, un solo uso y 10 min; PKCE S256; el permiso se vuelve a comprobar al volver de Google; solo quien autorizó puede elegir las fichas | ✅ F4 · probado |
 | Abuso / fuerza bruta | Rate limit por usuario/IP en API (`@fastify/rate-limit`); límites de Supabase Auth | ✅ F1 |
 | Webhooks falsificados o repetidos | HMAC `X-Hub-Signature-256` en tiempo constante, tabla `webhook_events` con `UNIQUE (provider, event_id)` | 📐 diseño F4 |
 

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Lock, Plug, Plus, RefreshCw } from 'lucide-react';
+import { FlaskConical, Lock, Plug, Plus, RefreshCw, Unplug } from 'lucide-react';
 import type { ConnectionStatus } from '@rep/shared';
 import { api } from '@/lib/api';
 import { useOrg } from '@/lib/use-org';
@@ -15,9 +16,15 @@ import {
 import { Badge, Card, EmptyState, ErrorState, PageHeader, Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/field';
-import { Sheet } from '@/components/ui/dialog';
+import { ConfirmDialog, Sheet } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { SimulatedBadge } from '@/features/inbox/parts';
+import {
+  GOOGLE_ERRORS,
+  GoogleCard,
+  SelectGoogleLocationsSheet,
+  type IntegrationsStatus,
+} from './google-connect';
 
 interface Connection {
   id: string;
@@ -28,6 +35,7 @@ interface Connection {
   displayName: string;
   status: ConnectionStatus;
   isSimulated: boolean;
+  capabilities: string[];
   lastSuccessSyncAt: string | null;
   nextRunAt: string | null;
   lastErrorMessage: string | null;
@@ -42,8 +50,7 @@ interface Connection {
   } | null;
 }
 
-const REAL_PROVIDERS = [
-  { name: 'Google Business Profile', reason: 'Pendiente de que Google apruebe el acceso a la API' },
+const PENDING_PROVIDERS = [
   { name: 'Facebook', reason: 'Pendiente de app de Meta y App Review' },
   { name: 'Instagram', reason: 'Pendiente de app de Meta y App Review' },
   { name: 'Monitorización web', reason: 'Pendiente de elegir proveedor de búsqueda' },
@@ -54,6 +61,22 @@ export function SourcesPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [selecting, setSelecting] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<Connection | null>(null);
+  const integrations = useQuery({
+    queryKey: ['integrations'],
+    queryFn: () => api<IntegrationsStatus>('/integrations'),
+  });
+  // Vuelta desde Google: ?google=<autorización> o ?google_error=<código>.
+  useEffect(() => {
+    const ok = params.get('google');
+    const err = params.get('google_error');
+    if (!ok && !err) return;
+    if (ok) setSelecting(ok);
+    if (err) toast('error', GOOGLE_ERRORS[err] ?? 'No se pudo conectar con Google.');
+    setParams({}, { replace: true });
+  }, [params, setParams, toast]);
   const q = useQuery({
     queryKey: ['connections', orgId],
     queryFn: () =>
@@ -95,6 +118,26 @@ export function SourcesPage() {
       ),
     onError: (e) => toast('error', e.message),
   });
+  const disconnect = useMutation({
+    mutationFn: (id: string) =>
+      api<{ revokedAtProvider: boolean | null; credentialReleased: boolean }>(
+        `/connections/${id}/disconnect`,
+        { method: 'POST' },
+      ),
+    onSuccess: (r) => {
+      toast(
+        'success',
+        r.credentialReleased
+          ? r.revokedAtProvider
+            ? 'Fuente desconectada y acceso revocado en el proveedor'
+            : 'Fuente desconectada. Revisa en tu cuenta del proveedor que el acceso quedó retirado.'
+          : 'Fuente desconectada',
+      );
+      setDisconnecting(null);
+      refresh();
+    },
+    onError: (e) => toast('error', e.message),
+  });
   const mode = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Record<string, string> }) =>
       api(`/connections/${id}`, { method: 'PATCH', body }),
@@ -131,17 +174,26 @@ export function SourcesPage() {
           <EmptyState
             icon={<Plug className="size-5" aria-hidden />}
             title="Sin fuentes conectadas"
-            description="Las integraciones reales aún no están disponibles. En desarrollo puedes crear una fuente simulada con datos ficticios para probar el flujo completo."
+            description={
+              integrations.data?.google.configured
+                ? 'Conecta una ficha de Google Business Profile para empezar a recibir reseñas.'
+                : 'Ninguna integración real está configurada todavía. En desarrollo puedes crear una fuente simulada con datos ficticios para probar el flujo completo.'
+            }
           />
         ) : (
           <ul className="divide-y divide-border">
             {q.data?.items.map((c) => (
-              <li key={c.id} className="flex flex-col gap-3 p-4 xl:flex-row xl:items-center">
+              <li key={c.id} className="flex flex-col gap-3 p-4 2xl:flex-row 2xl:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{c.displayName}</span>
                     {c.isSimulated && <SimulatedBadge />}
                     <Badge tone={CONNECTION_TONE[c.status]}>{connectionLabel(c.status)}</Badge>
+                    {!c.isSimulated &&
+                      c.status !== 'disconnected' &&
+                      !c.capabilities.includes('publish_reply') && (
+                        <Badge tone="warning">Solo lectura</Badge>
+                      )}
                   </div>
                   <p className="mt-0.5 text-xs text-muted">
                     {c.clientName}
@@ -161,10 +213,10 @@ export function SourcesPage() {
                   )}
                 </div>
                 {c.canManage && (
-                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 2xl:justify-end">
                     {c.isSimulated && (
                       <>
-                        <div className="w-48">
+                        <div className="w-60">
                           <Select
                             aria-label="Modo de publicación simulado"
                             className="h-8 text-[13px]"
@@ -182,7 +234,7 @@ export function SourcesPage() {
                             <option value="credentials_expired">Credenciales caducadas</option>
                           </Select>
                         </div>
-                        <div className="w-48">
+                        <div className="w-60">
                           <Select
                             aria-label="Modo de sincronización simulado"
                             className="h-8 text-[13px]"
@@ -216,6 +268,11 @@ export function SourcesPage() {
                     >
                       <RefreshCw className="size-3.5" aria-hidden /> Sincronizar
                     </Button>
+                    {c.status !== 'disconnected' && (
+                      <Button size="sm" variant="secondary" onClick={() => setDisconnecting(c)}>
+                        <Unplug className="size-3.5" aria-hidden /> Desconectar
+                      </Button>
+                    )}
                   </div>
                 )}
               </li>
@@ -226,17 +283,45 @@ export function SourcesPage() {
 
       <h2 className="mb-3 text-sm font-semibold">Integraciones reales</h2>
       <div className="grid gap-3 sm:grid-cols-2">
-        {REAL_PROVIDERS.map((p) => (
+        <GoogleCard
+          status={integrations.data?.google}
+          orgId={orgId}
+          canConnect={integrations.isSuccess}
+        />
+        {PENDING_PROVIDERS.map((p) => (
           <Card key={p.name} className="flex items-start gap-3 p-4">
             <Lock className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
             <div>
               <p className="text-sm font-medium">{p.name}</p>
-              <p className="text-xs text-muted">No disponible · {p.reason} (Fase 4)</p>
+              <p className="text-xs text-muted">No disponible · {p.reason} (próximo bloque)</p>
             </div>
           </Card>
         ))}
       </div>
 
+      {selecting && (
+        <SelectGoogleLocationsSheet
+          credentialId={selecting}
+          onClose={() => setSelecting(null)}
+          onConnected={refresh}
+        />
+      )}
+      {disconnecting && (
+        <ConfirmDialog
+          open
+          onOpenChange={(o) => !o && setDisconnecting(null)}
+          title={`¿Desconectar «${disconnecting.displayName}»?`}
+          description={
+            disconnecting.isSimulated
+              ? 'Se dejarán de sincronizar reseñas de esta fuente simulada.'
+              : 'Se dejarán de leer reseñas y no se podrá publicar en esta ficha. Si era la última ficha con esa autorización, se revocará el acceso en el proveedor. El historial se conserva.'
+          }
+          confirmLabel="Desconectar"
+          danger
+          loading={disconnect.isPending}
+          onConfirm={() => disconnect.mutate(disconnecting.id)}
+        />
+      )}
       {creating && (
         <CreateSimulatorSheet
           orgId={orgId}

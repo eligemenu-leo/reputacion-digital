@@ -53,6 +53,26 @@ const schema = z
       }),
     /** Clasificar automáticamente las interacciones nuevas al sincronizar. */
     AI_AUTO_CLASSIFY: bool.prefault('true'),
+    /** URL pública de esta API (para el redirect URI de OAuth). */
+    API_PUBLIC_URL: z.string().url().default('http://localhost:8787'),
+    /**
+     * Claves para sellar tokens OAuth: "kid:base64-32-bytes[,kid-anterior:...]".
+     * Sin ellas no se puede conectar ningún proveedor real.
+     */
+    CREDENTIALS_ENCRYPTION_KEYS: z.string().min(10).optional(),
+    /** Cliente OAuth de Google Cloud (tipo «Aplicación web»). Sin él, Google aparece como no configurado. */
+    GOOGLE_OAUTH_CLIENT_ID: z.string().min(10).optional(),
+    GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(10).optional(),
+    GOOGLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(20_000),
+  })
+  .refine((c) => Boolean(c.GOOGLE_OAUTH_CLIENT_ID) === Boolean(c.GOOGLE_OAUTH_CLIENT_SECRET), {
+    message: 'GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET van juntos',
+  })
+  .refine((c) => !c.GOOGLE_OAUTH_CLIENT_ID || Boolean(c.CREDENTIALS_ENCRYPTION_KEYS), {
+    message: 'Conectar Google requiere CREDENTIALS_ENCRYPTION_KEYS para cifrar los tokens',
+  })
+  .refine((c) => c.NODE_ENV !== 'production' || c.API_PUBLIC_URL.startsWith('https://'), {
+    message: 'API_PUBLIC_URL debe usar https en producción',
   })
   .refine((c) => c.SUPABASE_JWT_SECRET || c.SUPABASE_URL, {
     message: 'Se requiere SUPABASE_URL (JWKS) o SUPABASE_JWT_SECRET para verificar tokens',
@@ -76,7 +96,9 @@ const schema = z
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = schema.safeParse(env);
+  // Una variable vacía («CLAVE=» copiada de .env.example) cuenta como no definida.
+  const cleaned = Object.fromEntries(Object.entries(env).filter(([, v]) => v !== ''));
+  const parsed = schema.safeParse(cleaned);
   if (!parsed.success) {
     // No se imprime el entorno completo para no filtrar secretos.
     const issues = parsed.error.issues.map(

@@ -6,6 +6,7 @@ import { createAuthAdmin } from './lib/supabase-admin';
 import { createBoss, ensureQueues, PgBossQueue } from './domain/pgboss-queue';
 import type { JobQueue } from './domain/queue';
 import { aiRuntimeFromConfig } from './ai/service';
+import { createIntegrations } from './domain/credentials';
 
 const config = loadConfig();
 const sql = createDb(config);
@@ -28,6 +29,7 @@ const app = await buildApp({
   authAdmin: createAuthAdmin(config),
   queue,
   ai: aiRuntimeFromConfig(config),
+  integrations: createIntegrations(config),
 });
 
 const shutdown = async (signal: string) => {

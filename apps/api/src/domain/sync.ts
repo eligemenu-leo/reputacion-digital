@@ -238,8 +238,8 @@ export async function runSync(deps: JobDeps, runId: string) {
     return { status: 'cancelled' as const };
   }
   const resolved = await deps.registry.resolve(account);
-  if (!resolved) {
-    const err: ConnectorError = {
+  if (!resolved || 'error' in resolved) {
+    const err: ConnectorError = resolved?.error ?? {
       kind: 'not_supported',
       message: 'Integración no disponible todavía para este proveedor',
       retryable: false,

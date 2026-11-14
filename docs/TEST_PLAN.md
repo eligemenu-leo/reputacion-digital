@@ -56,6 +56,12 @@ node apps/web/e2e/phase3-smoke.mjs      # Fase 3 (IA: OpenAI si hay clave, o AI_
 
 **E2E Fase 3:** marca → fuente simulada → clasificación por el worker → sentimiento en la bandeja → análisis de salud y de manipulación → «Generar con IA» y «Más breve» → envío a aprobación sin publicar → la aprobadora ve el aviso de IA → informe con métricas y resumen de IA → coste registrado.
 
+**Fase 4 · Google (unitarias, `packages/connectors/src/google.test.ts`, contra `FakeGoogleApi`):** URL de autorización (solo `business.manage`, offline, PKCE S256, sin exponer el verificador); canje con verificador correcto e incorrecto; refresco e `invalid_grant` → credenciales caducadas; revocación; cuentas y ubicaciones con aptitud para responder; normalización (autor anónimo sin nombre, valoración, respuesta existente), paginación y parada en `since`; rutas e ids manipulados rechazados sin llamar a Google; publicación verificada, moderación pendiente, rechazo por política, ficha no verificada; **corte tras escribir y 5xx en escritura = ambiguo**; mapeo de errores sin tokens en los mensajes.
+
+**Fase 4 · secretos y configuración** (`apps/api/src/lib/secrets.test.ts`): AES-256-GCM con AAD por fila, detección de manipulación, rotación de claves, formato de clave; variables vacías = no definidas; https obligatorio en producción.
+
+**Fase 4 · flujo Google** (`test/api/google.test.ts`): sin configuración no aparenta estar disponible (409 y callback `not_configured`); redirect URI informado; permisos para iniciar; **state solo como hash, de un solo uso**, verificador sellado; cancelación en Google sin guardar nada; autorización sin `business.manage` rechazada y revocada; **tokens sellados e ilegibles para usuarios** (también `credential_id` y `oauth_states`), ninguno en la auditoría; ubicaciones solo para quien autorizó; ubicación ajena rechazada; conexión con primera sincronización real del worker (reseñas no simuladas, anónimos sin nombre, respuesta existente); restricción «real conectada ⇒ credencial»; **publicación una sola vez y verificada**; **corte tras escribir → consulta y sin duplicado**; ficha no verificada → error claro sin llamar a Google; refresco del token antes de sincronizar; **autorización revocada que no aparenta funcionar**; desconexión de la última ficha → revocación en Google y borrado; barrido de autorizaciones abandonadas.
+
 ## Escenarios E2E pendientes (spec §13)
 
 | # | Escenario | Fase |
@@ -72,5 +78,5 @@ node apps/web/e2e/phase3-smoke.mjs      # Fase 3 (IA: OpenAI si hay clave, o AI_
 * Reseña maliciosa que intenta ordenar acciones a la IA (F3).
 * ✅ Reintentos que no duplican publicaciones (F2, simulador ambiguo).
 * ✅ Fallo parcial de un conector sin afectar a los demás (F2, simulador).
-* Credencial revocada real que no aparenta funcionar (F4; simulada ✅ en F2).
-* Logs del worker sin tokens: el simulador no usa tokens; revisar con conectores reales (F4).
+* ✅ Credencial revocada que no aparenta funcionar (F4, Google falso). Pendiente con Google real cuando haya acceso.
+* ✅ Tokens ausentes de respuestas, auditoría y mensajes de error (F4, Google falso). Revisar logs del worker con Google real.

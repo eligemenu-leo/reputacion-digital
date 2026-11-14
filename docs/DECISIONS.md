@@ -96,6 +96,15 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Decisión:** la clasificación de la IA solo puede **subir** prioridad y añadir riesgos (nunca quitarlos); valoración ≤ 2 → al menos alta; riesgo sanitario, alimentario, legal, de seguridad o discriminación → crítica y revisión especializada. Los borradores pasan validaciones fijas (enlaces/emails/teléfonos no verificados, expresiones prohibidas, longitud, repetición) independientemente de lo que «diga» el modelo.
 * **Consecuencia:** el triaje de la Fase 2 (ADR-017) se mantiene como suelo; la IA lo enriquece.
 
+## ADR-024 · Tokens OAuth sellados por la API (AES-256-GCM) en el esquema `private`
+* **Decisión:** los tokens y el verificador PKCE se cifran en la API con AES-256-GCM (`apps/api/src/lib/secrets.ts`) y se guardan en `private.provider_credentials` / `private.oauth_states`, sin privilegios para `anon` ni `authenticated`. El AAD es el id de la fila; la clave (`CREDENTIALS_ENCRYPTION_KEYS`, con id para rotar) solo existe en el entorno de API y worker.
+* **Alternativa descartada:** Supabase Vault (previsto en la Fase 0). Con Vault la clave de descifrado está en el propio servidor de base de datos y cualquiera con `service_role` puede leer `vault.decrypted_secrets`; además no está en el shim de pruebas.
+* **Consecuencia:** un volcado o una consulta con `service_role` no basta para leer tokens; perder la clave obliga a reconectar las cuentas (no hay pérdida de datos de negocio). La columna `connected_accounts.credential_id` no se expone al cliente y una fuente real no puede estar «conectada» sin credencial (restricción en BD).
+
+## ADR-025 · Una fuente por ficha de Google; solo lectura si la ficha no es apta
+* **Decisión:** cada ubicación de Google es una fila de `connected_accounts` (`external_account_id = accounts/A/locations/L`) que comparte la autorización con las demás fichas elegidas. La aptitud para responder (`VoiceOfMerchantState.hasVoiceOfMerchant`) se guarda en `capabilities`; sin ella no se llama nunca a `updateReply`.
+* **Motivo:** el motor de sincronización y publicación ya trabaja por fuente; el estado, los errores y la próxima ejecución se muestran por ficha, y un fallo en una no afecta a las demás.
+
 ## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
 * **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
 * **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.

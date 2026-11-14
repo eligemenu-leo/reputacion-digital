@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { allowedTransitionPairs, responseHash } from '@rep/shared';
 import { buildApp } from '../../src/app';
+import { createIntegrations } from '../../src/domain/credentials';
 import { loadConfig } from '../../src/config';
 import { createDb } from '../../src/lib/db';
 import { createTokenVerifier } from '../../src/lib/auth';
@@ -56,6 +57,7 @@ beforeAll(async () => {
       },
     },
     queue,
+    integrations: createIntegrations(config),
     ai: null,
   });
   deps = {

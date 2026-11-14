@@ -6,6 +6,8 @@
 import { loadConfig } from './config';
 import { createDb } from './lib/db';
 import { createConnectorRegistry } from './domain/connectors';
+import { createIntegrations } from './domain/credentials';
+import { sweepCredentials } from './domain/connection-lifecycle';
 import { createBoss, ensureQueues, PgBossQueue } from './domain/pgboss-queue';
 import { QUEUES } from './domain/queue';
 import { runPublish, sweepPublications, sweepSyncRuns } from './domain/publish';
@@ -32,9 +34,10 @@ boss.on('error', (err) => log.warn({ err }, 'pg-boss error'));
 
 await boss.start();
 await ensureQueues(boss);
+const integrations = createIntegrations(config);
 const deps: JobDeps = {
   sql,
-  registry: createConnectorRegistry(sql),
+  registry: createConnectorRegistry(sql, integrations),
   queue: new PgBossQueue(boss),
   authorRefPepper: config.AUTHOR_REF_PEPPER,
   log,
@@ -43,6 +46,7 @@ const ai = aiRuntimeFromConfig(config);
 deps.aiAutoClassify = Boolean(ai) && config.AI_AUTO_CLASSIFY;
 const aiDeps: AiDeps = { sql, ai, queue: deps.queue, log };
 log.info({ provider: ai?.provider.name ?? 'none', models: ai?.models ?? null }, 'ai runtime');
+log.info({ google: Boolean(integrations.google) }, 'integrations');
 
 await boss.work<{ id: string }>(QUEUES.sync, { localConcurrency: 4 }, async ([job]) => {
   if (job) await runSync(deps, job.data.id);
@@ -58,7 +62,8 @@ await boss.work(QUEUES.sweep, async () => {
   const pubs = await sweepPublications(deps);
   const runs = await sweepSyncRuns(deps);
   const ais = ai ? await sweepClassifications(aiDeps) : 0;
-  if (syncs + pubs + runs + ais) log.info({ syncs, pubs, runs, ais }, 'sweep');
+  const creds = await sweepCredentials(sql, integrations);
+  if (syncs + pubs + runs + ais + creds) log.info({ syncs, pubs, runs, ais, creds }, 'sweep');
 });
 await boss.schedule(QUEUES.sweep, '* * * * *');
 log.info({}, 'worker started');

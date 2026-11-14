@@ -111,9 +111,11 @@ export async function runPublish(deps: JobDeps, jobId: string) {
         clientId: string;
         locationId: string | null;
         lastSuccessSyncAt: Date | null;
+        capabilities: string[];
       }[]
     >`
-      select id, provider, status, external_account_id, config, organization_id, client_id, location_id, last_success_sync_at
+      select id, provider, status, external_account_id, config, organization_id, client_id, location_id, last_success_sync_at,
+             capabilities
         from public.connected_accounts where id = ${job.connectedAccountId}`;
     const [ext] = await tx<{ externalId: string }[]>`
       select external_id from public.external_interactions where id = ${i.id}`;
@@ -126,13 +128,25 @@ export async function runPublish(deps: JobDeps, jobId: string) {
   if (claim.kind !== 'go') return { status: claim.kind };
   const { job, account, externalId } = claim;
 
-  const resolved = account.status === 'disconnected' ? null : await deps.registry.resolve(account);
-  if (!resolved) {
+  if (!account.capabilities.includes('publish_reply')) {
+    const reason = (account.config as { ineligibilityReason?: string }).ineligibilityReason;
     return fail(deps, job, {
-      kind: 'not_supported',
-      message: 'La fuente no está disponible para publicar',
+      kind: 'insufficient_permissions',
+      message: `Esta fuente no permite publicar respuestas${reason ? `: ${reason}` : ''}`,
       retryable: false,
     });
+  }
+  const resolved = account.status === 'disconnected' ? null : await deps.registry.resolve(account);
+  if (!resolved || 'error' in resolved) {
+    return fail(
+      deps,
+      job,
+      resolved?.error ?? {
+        kind: 'not_supported',
+        message: 'La fuente no está disponible para publicar',
+        retryable: false,
+      },
+    );
   }
   const { connector, credentials } = resolved;
   const base = {

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '@rep/shared';
 import { buildApp } from '../../src/app';
+import { createIntegrations } from '../../src/domain/credentials';
 import { loadConfig } from '../../src/config';
 import { createDb } from '../../src/lib/db';
 import { createTokenVerifier } from '../../src/lib/auth';
@@ -82,6 +83,7 @@ beforeAll(async () => {
       },
     },
     queue: new RecordingQueue(),
+    integrations: createIntegrations(config),
     ai: runtime,
   });
   // Periodo actual: 12 interacciones; periodo anterior: 3.

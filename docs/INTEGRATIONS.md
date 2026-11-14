@@ -6,7 +6,7 @@
 
 | Proveedor | Estado | Bloqueo externo |
 |---|---|---|
-| Google Business Profile | 🔒 **Bloqueado** (diseño listo) | Solicitud de acceso a las Business Profile APIs (cuota 0 QPM hasta aprobación) |
+| Google Business Profile | 🟡 **Implementado, pendiente de acceso** (F4 · bloque 1, probado contra un Google falso) | Cliente OAuth en Google Cloud + aprobación de acceso a las Business Profile APIs (cuota 0 QPM hasta aprobación) |
 | Facebook (Páginas) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review de permisos avanzados + verificación de empresa |
 | Instagram (cuentas profesionales) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review |
 | Monitorización web | 🔒 **Bloqueado** | Elegir y contratar proveedor de búsqueda (ver abajo) |
@@ -42,6 +42,39 @@ Ninguna integración se muestra como activa en la interfaz hasta tener credencia
 * `updateReply` sobrescribe la respuesta existente: es idempotente por naturaleza, pero se compara el texto remoto antes de reintentar.
 
 **Dependencias de Leo/la agencia:** proyecto de Google Cloud, pantalla de consentimiento OAuth (verificación de Google si el scope es sensible), solicitud de acceso a la API, al menos un perfil verificado 60+ días para probar.
+
+### Implementación (Fase 4 · bloque 1, 15/11/2026)
+
+Endpoints reverificados el 14/11/2026 (referencia actualizada el 02/11/2026):
+
+| Uso | Llamada |
+|---|---|
+| Cuentas | `GET mybusinessaccountmanagement.googleapis.com/v1/accounts` (pageSize ≤ 20) |
+| Ubicaciones | `GET mybusinessbusinessinformation.googleapis.com/v1/{accounts/*}/locations?readMask=name,title,storefrontAddress,metadata` (pageSize ≤ 100) |
+| ¿Puede responder? | `GET mybusinessverifications.googleapis.com/v1/{locations/*}/VoiceOfMerchantState` → `hasVoiceOfMerchant` |
+| Reseñas | `GET mybusiness.googleapis.com/v4/{accounts/*}/{locations/*}/reviews?orderBy=updateTime desc` (pageSize ≤ 50) |
+| Responder | `PUT …/reviews/{id}/reply` `{ comment }` → `ReviewReply` con `reviewReplyState` (`PENDING`/`APPROVED`/`REJECTED`) y `policyViolation` |
+| Verificar | `GET …/reviews/{id}` y comparación del texto (el `get` no devuelve `reviewReplyState`) |
+
+* **Código:** `packages/connectors/src/google.ts` (conector), `apps/api/src/routes/google.ts` (OAuth y selección), `apps/api/src/domain/credentials.ts` y `connection-lifecycle.ts` (sellado, refresco, revocación).
+* **Flujo:** «Conectar Google» → Google → `/v1/oauth/google/callback` (state de un solo uso, 10 min, PKCE S256) → el mismo usuario elige las fichas → una fuente por ficha y primera sincronización.
+* **Una fuente por ubicación:** `external_account_id = accounts/A/locations/L`; varias fuentes pueden compartir la misma autorización (`credential_id`).
+* **Fichas no verificadas:** se conectan en **solo lectura** (sin `publish_reply` en `capabilities`); el motor de publicación no llama a Google y deja el motivo («La ficha no está verificada», «Google está revisando la ficha»…).
+* **Sincronización incremental:** orden `updateTime desc`, se detiene al llegar a `last_success_sync_at − 15 min`. Autores anónimos sin nombre. Sin `authorExternalId` (Google no lo da).
+* **Publicación:** `PUT` crea o sustituye (no puede duplicar). Un corte de red o un 5xx tras escribir es `ambiguous` y el motor consulta la reseña antes de reintentar. `PENDING` = aceptada por Google, en moderación (`provider_state = pending_moderation`); `REJECTED` = error no reintentable con el motivo de política.
+* **Errores:** 401 → credenciales caducadas; 403 → acceso insuficiente (también sin aprobación de acceso); 429 → límite con `Retry-After`; `invalid_grant` al refrescar → «Credenciales caducadas, vuelve a conectar». Los mensajes se recortan y se limpian de tokens.
+* **Desconectar:** si era la última fuente con esa autorización, se borra la credencial y se revoca en `oauth2.googleapis.com/revoke`. Las autorizaciones abandonadas (sin fichas elegidas) se revocan a la hora.
+* **No implementado todavía:** notificaciones Pub/Sub (se sincroniza por sondeo), `deleteReply`, `batchGetReviews`.
+* **Pruebas:** `packages/connectors/src/google.test.ts` y `apps/api/test/api/google.test.ts` contra `FakeGoogleApi` (`@rep/connectors/testing`), un servidor falso que nunca contacta con Google.
+
+### Cómo obtener el acceso (lo hace Leo)
+
+1. Google Cloud Console → crear proyecto (p. ej. «reputacion-digital»). Anotar el **número de proyecto**.
+2. Solicitar acceso con el formulario «Application for Basic API Access» (enlazado desde <https://developers.google.com/my-business/content/prereqs>): email propietario o gestor de una ficha verificada con más de 60 días y web propia. La respuesta suele tardar días o semanas.
+3. Habilitar en «APIs y servicios»: My Business Account Management API, My Business Business Information API, My Business Verifications API y Google My Business API.
+4. Pantalla de consentimiento OAuth: tipo «Externo», scope `…/auth/business.manage`, añadir como usuarios de prueba los emails que vayan a conectar fichas mientras la app no esté verificada.
+5. Credenciales → «ID de cliente de OAuth» tipo **Aplicación web** con el URI de redirección que muestra la pantalla Fuentes (en local: `http://localhost:8787/v1/oauth/google/callback`).
+6. Poner `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` y `CREDENTIALS_ENCRYPTION_KEYS` en `apps/api/.env` (nunca en el chat ni en el repositorio) y reiniciar API y worker.
 
 ## Meta — Facebook (Páginas)
 
