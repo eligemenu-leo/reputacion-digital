@@ -83,6 +83,8 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 **Errores encontrados y corregidos durante la verificación:**
 1. El trigger `updated_at` impedía simular avisos antiguos en las pruebas del barrido de análisis → el barrido recibe el umbral como parámetro (como en publicaciones).
 2. El rango de caracteres invisibles se había guardado como caracteres literales (ESLint `no-irregular-whitespace`) → reescrito con secuencias de escape.
+3. Prueba real (bloque 2, Mac, gpt-5.4): la página Informes se quedaba en blanco (lectura de `insights.data` antes de cargar), al resumen no le llegaban ejemplos si ningún tema tenía 3 menciones y el modelo redactó porcentajes como recuentos («42 de positivo»). Corregido con `summary.v2`, ejemplos de contexto y la regla de validación «una cifra que solo existe como `*_pct` lleva %». Segunda ronda: e2e completo OK, informe `ready` con 2 hallazgos respaldados por 3 reseñas cada uno, coste 0,0314 $.
+4. Ajustes de esa segunda ronda: «negativas o mixtas», ningún hallazgo sobre el sector del negocio, «Más breve» ≤ 85 % del borrador actual, singular «1 estrella».
 
 ## Pendiente y bloqueado
 
