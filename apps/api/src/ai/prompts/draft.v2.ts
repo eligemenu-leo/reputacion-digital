@@ -95,7 +95,8 @@ const VARIANT_HINT: Record<AiDraftVariant, string> = {
   initial: 'Redacta una primera propuesta.',
   another:
     'Redacta una alternativa claramente distinta del borrador actual (otra estructura y otras palabras), con el mismo contenido y tono.',
-  shorter: 'Reescribe el borrador actual más breve, conservando lo esencial.',
+  shorter:
+    'Reescribe el borrador actual claramente más breve (como mucho dos tercios de su longitud), conservando lo esencial.',
   warmer:
     'Reescribe el borrador actual con un tono más cercano y cálido, sin perder profesionalidad.',
   more_formal: 'Reescribe el borrador actual con un tono más formal.',

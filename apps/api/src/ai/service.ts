@@ -744,6 +744,12 @@ export async function generateDraftText(
       maxChars: LENGTH_LIMITS[brand.preferredLength] + 150,
       recentReplies: ctx.draft.recentReplies,
     });
+    const current = ctx.draft.currentDraft?.trim();
+    if (ctx.draft.variant === 'shorter' && current && reply.length > current.length * 0.85) {
+      reasons.push(
+        `La variante «Más breve» debe ser claramente más corta que el borrador actual (${current.length} caracteres)`,
+      );
+    }
     if (reasons.length === 0) {
       const known = new Set(Object.keys(brand.verifiedBusinessInfo));
       const warnings = [...call.value.warnings];

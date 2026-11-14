@@ -190,9 +190,11 @@ function MetricsView({ m }: { m: Metrics }) {
                 <li
                   key={k}
                   className="group flex items-center gap-2 text-sm"
-                  title={`${k} estrellas: ${n}`}
+                  title={`${k} ${k === '1' ? 'estrella' : 'estrellas'}: ${n}`}
                 >
-                  <span className="w-16 shrink-0 text-xs text-muted">{k} estrellas</span>
+                  <span className="w-16 shrink-0 text-xs text-muted">
+                    {k} {k === '1' ? 'estrella' : 'estrellas'}
+                  </span>
                   <span className="relative h-3 flex-1 rounded bg-surface-2">
                     <span
                       className="absolute inset-y-0 left-0 rounded-r bg-accent group-hover:opacity-80"
@@ -384,7 +386,7 @@ export function ReportsPage() {
         body: { from, to },
       }),
     onSuccess: (r) => {
-      toast('success', `Informe creado: ${REPORT_STATUS_LABELS_ES[r.status].toLowerCase()}`);
+      toast('success', `Informe creado (${REPORT_STATUS_LABELS_ES[r.status]})`);
       setOpen(r.id);
       void qc.invalidateQueries({ queryKey: ['reports', clientId] });
     },
