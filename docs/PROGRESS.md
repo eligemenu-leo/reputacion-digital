@@ -86,12 +86,27 @@ Leyenda: ✅ completado y verificado · 🟡 parcial · ⏳ pendiente · 🔒 bl
 3. Prueba real (bloque 2, Mac, gpt-5.4): la página Informes se quedaba en blanco (lectura de `insights.data` antes de cargar), al resumen no le llegaban ejemplos si ningún tema tenía 3 menciones y el modelo redactó porcentajes como recuentos («42 de positivo»). Corregido con `summary.v2`, ejemplos de contexto y la regla de validación «una cifra que solo existe como `*_pct` lleva %». Segunda ronda: e2e completo OK, informe `ready` con 2 hallazgos respaldados por 3 reseñas cada uno, coste 0,0314 $.
 4. Ajustes de esa segunda ronda: «negativas o mixtas», ningún hallazgo sobre el sector del negocio, «Más breve» ≤ 85 % del borrador actual, singular «1 estrella».
 
+## Fase 4 — Integraciones, bloque 1: Google Business Profile 🟡 (15/11/2026)
+
+Implementado y probado contra un servidor falso de Google; **sin acceso real todavía** (lo bloquea Google, no el código).
+
+| Entregable | Estado | Verificación |
+|---|---|---|
+| Conector `GoogleBusinessConnector` (OAuth PKCE, cuentas, ubicaciones con aptitud, reseñas, responder, verificar, revocar) | ✅ | 10 pruebas unitarias contra `FakeGoogleApi` |
+| Tokens sellados (AES-256-GCM, ADR-024) en `private.*`, sin acceso de usuarios | ✅ | pruebas de RLS y de sellado |
+| Flujo OAuth con state de un solo uso y elección de fichas por quien autorizó | ✅ | `test/api/google.test.ts` (19 pruebas) |
+| Una fuente por ficha; fichas no verificadas en solo lectura (ADR-025) | ✅ | pruebas de flujo |
+| Refresco automático, credencial revocada visible, revocación al desconectar, limpieza de autorizaciones abandonadas | ✅ | pruebas de flujo |
+| Pantalla Fuentes: tarjeta de Google con estado real, URI de redirección, selección de fichas, «Solo lectura», desconectar | ✅ | typecheck + lint; revisión visual pendiente en el Mac |
+| Conexión con una ficha real de Google | 🔒 | cliente OAuth de Google Cloud + aprobación de acceso a la API |
+| Notificaciones Pub/Sub de reseñas nuevas | ⏳ | siguiente iteración (hoy: sondeo periódico) |
+
 ## Pendiente y bloqueado
 
 | Elemento | Estado | Motivo |
 |---|---|---|
 | IA con datos reales de clientes | 🔒 | DPA con OpenAI (la clave ya está configurada en local) |
-| Google Business Profile | 🔒 | acceso a la API (solicitud a Google) |
+| Google Business Profile | 🔒 | código listo; falta cliente OAuth y aprobación de acceso de Google (pasos en `INTEGRATIONS.md`) |
 | Facebook / Instagram | 🔒 | app de Meta + App Review |
 | Monitorización web | 🔒 | elección/contrato de proveedor (ADR-009) |
 | Staging / producción | 🔒 | aprobación de coste de proyectos Supabase y hosting |

@@ -20,6 +20,8 @@ import type { AiRuntime } from './ai/service';
 import { aiRoutes } from './routes/ai';
 import { brandRoutes } from './routes/brand';
 import { reportRoutes } from './routes/reports';
+import { googleRoutes } from './routes/google';
+import type { Integrations } from './domain/credentials';
 
 export interface AppDeps {
   config: Config;
@@ -30,6 +32,8 @@ export interface AppDeps {
   queue: JobQueue;
   /** Proveedor de IA (null = IA no configurada en este entorno). */
   ai: AiRuntime | null;
+  /** Proveedores reales configurados (OAuth) y caja de sellado de credenciales. */
+  integrations: Integrations;
 }
 
 declare module 'fastify' {
@@ -124,6 +128,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await v1.register(clientRoutes);
       await v1.register(interactionRoutes);
       await v1.register(connectionRoutes);
+      await v1.register(googleRoutes);
       await v1.register(aiRoutes);
       await v1.register(brandRoutes);
       await v1.register(reportRoutes);

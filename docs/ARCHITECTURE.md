@@ -23,7 +23,7 @@
                 ┌──────────────▼─────────────────────┴─────────────────┴──┐
                 │ PostgreSQL (Supabase)                                    │
                 │  public: datos de tenant con RLS     private: funciones  │
-                │  auth: usuarios (Supabase)           vault: tokens (F4)  │
+                │  auth: usuarios (Supabase)           private: tokens     │
                 │  pgboss: colas persistentes (F2)                         │
                 └──────────────────────────────────────────────────────────┘
 ```

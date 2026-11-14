@@ -68,6 +68,7 @@ El `Dockerfile` se preparará cuando se elija hosting (pendiente de aprobación 
 
 * `SUPABASE_SERVICE_ROLE_KEY` / claves de firma: rotar desde el panel de Supabase, actualizar el gestor de secretos y reiniciar API/worker.
 * Secretos de apps de Google/Meta y `OPENAI_API_KEY`: rotación semestral o inmediata ante sospecha.
+* `CREDENTIALS_ENCRYPTION_KEYS`: añadir la clave nueva **al principio** (`k2:…,k1:…`) y reiniciar; lo nuevo se sella con `k2` y lo antiguo se sigue abriendo con `k1`. Cada refresco de token vuelve a sellar con la clave actual; cuando ninguna fila tenga `key_id = 'k1'`, retirar `k1`. Perder todas las claves obliga a reconectar las fuentes (no se pierden datos de negocio).
 
 ## Observabilidad
 

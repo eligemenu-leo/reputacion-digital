@@ -14,6 +14,7 @@ import { requireClientAction, requireOrgPermission } from '../lib/authz';
 import { parse } from '../lib/http';
 import type { AuthContext } from '../lib/auth';
 import { assertSimulatorAllowed } from '../domain/connectors';
+import { releaseCredential } from '../domain/connection-lifecycle';
 import { DbSimulatorStore } from '../domain/simulator-store';
 import { notify, QUEUES } from '../domain/queue';
 import { enqueueSync } from '../domain/sync';
@@ -62,7 +63,7 @@ async function withAccount<T>(
 }
 
 export async function connectionRoutes(app: FastifyInstance) {
-  const { sql, queue, config } = app.deps;
+  const { sql, queue, config, integrations } = app.deps;
   const store = new DbSimulatorStore(sql);
   const idOf = (p: unknown, k: string) => parse(uuidSchema, (p as Record<string, string>)[k]);
 
@@ -198,8 +199,11 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.post('/connections/:id/disconnect', async (req) => {
     const auth = requireAuth(req);
     const id = idOf(req.params, 'id');
-    return withAccount(sql, auth, id, async (tx, a) => {
-      await tx`update public.connected_accounts set status = 'disconnected', disconnected_at = now(), next_run_at = null where id = ${id}`;
+    const res = await withAccount(sql, auth, id, async (tx, a) => {
+      const [prev] = await tx<{ credentialId: string | null }[]>`
+        select credential_id from public.connected_accounts where id = ${id}`;
+      await tx`update public.connected_accounts set status = 'disconnected', disconnected_at = now(), next_run_at = null,
+                 credential_id = null where id = ${id}`;
       await tx`update public.provider_sync_runs set status = 'cancelled', finished_at = now(), cancelled_by = ${auth.userId}
                 where connected_account_id = ${id} and status = 'queued'`;
       await audit(tx, {
@@ -210,8 +214,17 @@ export async function connectionRoutes(app: FastifyInstance) {
         entityType: 'connected_accounts',
         entityId: id,
       });
-      return { ok: true };
+      return { credentialId: prev?.credentialId ?? null };
     });
+    // Si era la última fuente con esa autorización, se revoca en el proveedor y se borra.
+    const released = res.credentialId
+      ? await releaseCredential(sql, integrations, res.credentialId)
+      : { released: false, revokedAtProvider: null };
+    return {
+      ok: true,
+      credentialReleased: released.released,
+      revokedAtProvider: released.revokedAtProvider,
+    };
   });
 
   app.get('/connections/:id/runs', async (req) => {
