@@ -432,3 +432,117 @@ describe('Catálogo RBAC', () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe('RLS · Fase 2 (bandeja y flujo)', () => {
+  let account: string;
+  let interactionA1: string;
+  let interactionA2: string;
+  beforeAll(async () => {
+    [{ id: account }] = (await sql`
+      insert into public.connected_accounts (organization_id, client_id, provider, external_account_id, display_name, status, is_simulated, config)
+      values (${w.orgA}, ${w.clientA1}, 'simulator', 'rls-sim', 'Sim', 'connected', true, '{"publishMode":"ok"}')
+      returning id`) as unknown as [{ id: string }];
+    const mk = async (client: string, acc: string | null, ext: string) =>
+      (
+        (await sql`
+        insert into public.external_interactions (organization_id, client_id, connected_account_id, provider, kind, external_id, content, content_hash, original_created_at)
+        values (${w.orgA}, ${client}, ${acc}, 'simulator', 'review', ${ext}, 'texto', 'h', now()) returning id`) as unknown as [
+          { id: string },
+        ]
+      )[0].id;
+    interactionA1 = await mk(w.clientA1, account, 'rls-1');
+    interactionA2 = await mk(w.clientA2, null, 'rls-2');
+  });
+
+  it('otra organización no ve fuentes ni interacciones', async () => {
+    await asUser(sql, w.users.adminB, async (tx) => {
+      expect(
+        await tx`select id from public.connected_accounts where organization_id = ${w.orgA}`,
+      ).toHaveLength(0);
+      expect(
+        await tx`select id from public.external_interactions where organization_id = ${w.orgA}`,
+      ).toHaveLength(0);
+      expect(
+        await tx`select id from public.interaction_events where organization_id = ${w.orgA}`,
+      ).toHaveLength(0);
+    });
+  });
+
+  it('un gestor solo ve las interacciones de sus clientes asignados', async () => {
+    await asUser(sql, w.users.managerA, async (tx) => {
+      const rows = await tx<
+        { id: string }[]
+      >`select id from public.external_interactions where organization_id = ${w.orgA}`;
+      expect(ids(rows)).toContain(interactionA1);
+      expect(ids(rows)).not.toContain(interactionA2);
+    });
+  });
+
+  it('la configuración interna de las fuentes no es legible por usuarios', async () => {
+    await expectSqlError(
+      asUser(sql, w.users.adminA, (tx) => tx`select config from public.connected_accounts`),
+      '42501',
+    );
+    await asUser(sql, w.users.adminA, async (tx) => {
+      expect(
+        await tx`select id, status from public.connected_accounts where id = ${account}`,
+      ).toHaveLength(1);
+    });
+  });
+
+  it('los usuarios no pueden escribir en tablas de flujo ni leer el estado remoto simulado', async () => {
+    await expectSqlError(
+      asUser(
+        sql,
+        w.users.adminA,
+        (tx) =>
+          tx`update public.external_interactions set priority = 4 where id = ${interactionA1}`,
+      ),
+      '42501',
+    );
+    await expectSqlError(
+      asUser(
+        sql,
+        w.users.adminA,
+        (tx) => tx`
+      insert into public.response_drafts (organization_id, client_id, interaction_id, version, content, content_hash)
+      values (${w.orgA}, ${w.clientA1}, ${interactionA1}, 1, 'x', 'h')`,
+      ),
+      '42501',
+    );
+    await expectSqlError(
+      asUser(sql, w.users.adminA, (tx) => tx`delete from public.interaction_events`),
+      '42501',
+    );
+    await expectSqlError(
+      asUser(
+        sql,
+        w.users.adminA,
+        (tx) => tx`update public.connected_accounts set status = 'connected'`,
+      ),
+      '42501',
+    );
+    await expectSqlError(
+      asUser(sql, w.users.adminA, (tx) => tx`select * from private.simulator_remote`),
+      '42501',
+    );
+  });
+
+  it('una interacción no puede apuntar a una fuente de otro cliente', async () => {
+    await expectSqlError(
+      sql`
+      insert into public.external_interactions (organization_id, client_id, connected_account_id, provider, kind, external_id, content_hash, original_created_at)
+      values (${w.orgA}, ${w.clientA2}, ${account}, 'simulator', 'review', 'rls-x', 'h', now())`,
+      '23503',
+    );
+  });
+
+  it('solo el simulador puede marcar datos como simulados', async () => {
+    await expectSqlError(
+      sql`
+      insert into public.connected_accounts (organization_id, client_id, provider, external_account_id, display_name, is_simulated)
+      values (${w.orgA}, ${w.clientA1}, 'google_business_profile', 'g-1', 'G', true)`,
+      '23514',
+    );
+  });
+});

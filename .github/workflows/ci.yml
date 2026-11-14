@@ -36,5 +36,6 @@ jobs:
       - name: Tests (unitarios, RLS e integración API)
         run: pnpm test
       - run: pnpm --filter @rep/web build
+      - run: pnpm --filter @rep/api build
       - name: Auditoría de dependencias de producción
         run: pnpm audit --prod --audit-level high

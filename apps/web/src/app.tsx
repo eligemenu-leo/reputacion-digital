@@ -35,6 +35,18 @@ const SettingsPage = lazy(() =>
 const AccountPage = lazy(() =>
   import('@/features/settings/account-page').then((m) => ({ default: m.AccountPage })),
 );
+const InboxPage = lazy(() =>
+  import('@/features/inbox/inbox-page').then((m) => ({ default: m.InboxPage })),
+);
+const InteractionPage = lazy(() =>
+  import('@/features/inbox/interaction-page').then((m) => ({ default: m.InteractionPage })),
+);
+const ApprovalsPage = lazy(() =>
+  import('@/features/approvals/approvals-page').then((m) => ({ default: m.ApprovalsPage })),
+);
+const SourcesPage = lazy(() =>
+  import('@/features/sources/sources-page').then((m) => ({ default: m.SourcesPage })),
+);
 const AdminPage = lazy(() =>
   import('@/features/admin/admin-page').then((m) => ({ default: m.AdminPage })),
 );
@@ -151,26 +163,9 @@ export function App() {
                   <Route path="usuarios" element={<MembersPage />} />
                   <Route path="auditoria" element={<AuditPage />} />
                   <Route path="ajustes" element={<SettingsPage />} />
-                  <Route
-                    path="bandeja"
-                    element={
-                      <ComingSoonPage
-                        title="Bandeja de reputación"
-                        phase="Fase 2"
-                        description="Reseñas, comentarios y menciones de todas las fuentes, con estados, filtros y acciones por lotes."
-                      />
-                    }
-                  />
-                  <Route
-                    path="aprobaciones"
-                    element={
-                      <ComingSoonPage
-                        title="Aprobaciones"
-                        phase="Fase 2"
-                        description="Revisión humana de cada respuesta antes de publicarla, con trazabilidad completa."
-                      />
-                    }
-                  />
+                  <Route path="bandeja" element={<InboxPage />} />
+                  <Route path="bandeja/:interactionId" element={<InteractionPage />} />
+                  <Route path="aprobaciones" element={<ApprovalsPage />} />
                   <Route
                     path="alertas"
                     element={
@@ -191,16 +186,7 @@ export function App() {
                       />
                     }
                   />
-                  <Route
-                    path="fuentes"
-                    element={
-                      <ComingSoonPage
-                        title="Fuentes conectadas"
-                        phase="Fase 4"
-                        description="Google Business Profile, Facebook, Instagram y monitorización web. Requieren aprobaciones externas."
-                      />
-                    }
-                  />
+                  <Route path="fuentes" element={<SourcesPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

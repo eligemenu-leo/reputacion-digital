@@ -10,7 +10,7 @@
 | Facebook (Páginas) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review de permisos avanzados + verificación de empresa |
 | Instagram (cuentas profesionales) | 🔒 **Bloqueado** (diseño listo) | App de Meta + App Review |
 | Monitorización web | 🔒 **Bloqueado** | Elegir y contratar proveedor de búsqueda (ver abajo) |
-| Simulador | ⏳ Fase 2 | — (solo dev/test, datos marcados como ficticios) |
+| Simulador | ✅ Fase 2 | — (solo dev/test, datos marcados como ficticios) |
 
 Ninguna integración se muestra como activa en la interfaz hasta tener credenciales válidas y permisos verificados.
 
@@ -72,3 +72,13 @@ Ninguna integración se muestra como activa en la interfaz hasta tener credencia
 Por tanto no se puede basar el módulo en ninguno de los dos. Diseño: interfaz `SearchProvider` intercambiable con implementaciones candidatas que operan mediante API oficial y términos que permiten el uso: **Brave Search API** (índice propio, API comercial), proveedores de noticias con licencia, y **RSS/Atom** declarados por los medios. Decisión de proveedor pendiente (coste/cobertura en España) → ver `DECISIONS.md` ADR-009.
 
 Reglas: no se hace scraping que vulnere términos o `robots.txt`; se guarda URL normalizada, título, extracto breve permitido, fecha de publicación, fecha de observación, proveedor consultado y sus limitaciones; desambiguación por dominio oficial, variantes, exclusiones, ubicación e idioma; protección SSRF al descargar cualquier URL (solo http/https, resolución DNS sin IPs privadas, límites de tamaño y tiempo).
+
+## Proveedor simulado (implementado en F2)
+
+`packages/connectors/src/simulator.ts` implementa el contrato completo con datos **ficticios** (autores marcados «(ficticio)», `is_simulated = true`, etiqueta «Simulado» en la interfaz). Solo existe fuera de producción (`NODE_ENV !== 'production'`).
+
+* Capacidades declaradas: lectura de reseñas y respuestas, publicación y consulta de estado. No declara OAuth, ubicaciones ni webhooks (devuelven `not_supported`).
+* Modos de publicación configurables por fuente: correcta, **ambigua** (publica pero responde con error de tiempo de espera), límite de peticiones (`retryAfterSec = 30`), error definitivo del proveedor, credenciales caducadas.
+* Modos de sincronización: correcta, error temporal (HTTP 503 simulado), credenciales caducadas.
+* Acciones de desarrollo: generar reseñas ficticias (incluye casos delicados: reclamación legal, problema de salud, intento de inyección de instrucciones) y simular que el autor edita su reseña.
+* Su «lado remoto» vive en `private.simulator_items` y `private.simulator_remote` (ADR-018).

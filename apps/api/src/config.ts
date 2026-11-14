@@ -21,9 +21,16 @@ const schema = z
     APP_URL: z.string().url().default('http://localhost:5173'),
     ENFORCE_ADMIN_MFA: bool.prefault('true'),
     RATE_LIMIT_PER_MINUTE: z.coerce.number().int().default(300),
+    /** Pimienta para seudonimizar identificadores de autores (HMAC). Obligatoria en producción. */
+    AUTHOR_REF_PEPPER: z.string().min(16).default('dev-only-author-pepper-not-secret'),
+    /** Envía trabajos a pg-boss. En tests se sustituye por una cola en memoria. */
+    JOBS_ENABLED: bool.prefault('true'),
   })
   .refine((c) => c.SUPABASE_JWT_SECRET || c.SUPABASE_URL, {
     message: 'Se requiere SUPABASE_URL (JWKS) o SUPABASE_JWT_SECRET para verificar tokens',
+  })
+  .refine((c) => c.NODE_ENV !== 'production' || !c.AUTHOR_REF_PEPPER.startsWith('dev-only'), {
+    message: 'AUTHOR_REF_PEPPER debe configurarse en producción',
   })
   .refine((c) => c.NODE_ENV !== 'production' || c.ENFORCE_ADMIN_MFA, {
     message: 'ENFORCE_ADMIN_MFA no puede desactivarse en producción',

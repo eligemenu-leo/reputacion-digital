@@ -10,29 +10,40 @@ pnpm lint && pnpm typecheck && pnpm format:check
 
 # E2E contra el stack local real (Supabase + API + web en marcha)
 npx supabase start
-pnpm --filter @rep/api dev & pnpm --filter @rep/web dev &
-node apps/web/e2e/phase1-smoke.mjs
+pnpm --filter @rep/api build
+node --env-file=apps/api/.env apps/api/dist/server.js & node --env-file=apps/api/.env apps/api/dist/worker.js &
+pnpm --filter @rep/web dev &
+node apps/web/e2e/phase1-smoke.mjs      # Fase 1 (requiere Mailpit)
+node apps/web/e2e/phase2-smoke.mjs      # Fase 2 (usa el worker real)
 ```
 
 ## Niveles
 
-| Nivel | Herramienta | Dónde | Estado F1 |
+| Nivel | Herramienta | Dónde | Estado F2 |
 |---|---|---|---|
-| Unitarias | Vitest | `packages/*/src/*.test.ts`, `apps/web/src/**/*.test.tsx` | 16 ✅ |
-| Políticas RLS | Vitest + PostgreSQL (shim) | `apps/api/test/rls` | 28 ✅ |
-| Integración API | Vitest + `fastify.inject` + PostgreSQL | `apps/api/test/api` | 22 ✅ |
-| E2E | Playwright contra Supabase local real | `apps/web/e2e/phase1-smoke.mjs` | 10 pasos ✅ |
+| Unitarias | Vitest | `packages/*/src/*.test.ts`, `apps/api/src/**/*.test.ts`, `apps/web/src/**/*.test.tsx` | 23 ✅ |
+| Políticas RLS | Vitest + PostgreSQL (shim) | `apps/api/test/rls` | 34 ✅ |
+| Integración API y flujo | Vitest + `fastify.inject` + PostgreSQL + manejadores del worker | `apps/api/test/api` | 45 ✅ |
+| E2E | Playwright contra Supabase local real + worker pg-boss | `apps/web/e2e/phase{1,2}-smoke.mjs` | 10 + 9 pasos ✅ |
 | Lint migraciones | `supabase db lint` | local | 0 avisos ✅ |
 | Accesibilidad | axe + revisión manual | F6 | ⏳ |
 | Rendimiento | Lighthouse CI (LCP), k6 (p95 API) | F6 | ⏳ |
 
-## Cobertura actual (Fase 1)
+## Cobertura (Fases 1 y 2)
 
 **Unitarias:** máquina de estados (no publicar sin aprobar, editar invalida aprobación, `published` terminal, reintento solo tras error), validación de entradas (URLs peligrosas, campos inyectados, zonas horarias, slugs), deduplicación (hash de contenido, clave por cuenta, normalización de URLs), accesibilidad del componente `Field`.
 
 **RLS (adversariales):** aislamiento total entre organizaciones en todas las tablas; usuario sin organización no ve nada; `anon` sin acceso; gestor solo ve clientes asignados; no puede editar otros, crear clientes ni escalar privilegios; rol de aprobación por cliente no se extiende a otros; roles personalizados no reciben permisos de plataforma; roles de sistema inmutables; último admin protegido; suspensión de miembro u organización corta el acceso al instante; FK compuestas impiden mezclar tenants; `organization_id` inmutable incluso para service_role; auditoría registra actor y diff, es inmutable y solo legible con `audit.read`; redacción de secretos; versiones de marca inmutables; interruptor global no modificable por usuarios; catálogo SQL = TypeScript; todas las tablas con RLS; todas las funciones SECURITY DEFINER con `search_path`.
 
 **Integración API:** 401 sin token, con firma manipulada, caducado o `alg=none`; `/me` con permisos efectivos; 403/404 entre tenants; inyección de `organizationId` rechazada; validación (400) con detalles; búsqueda con comodines escapados; paginación; ubicación principal única; archivado; resumen con datos reales y módulos «no disponibles»; MFA (aal2) obligatorio para gestión de miembros y alta de organizaciones; invitación no simulada si no hay proveedor de email (501, sin crear nada); alta de organización con propietario existente auditada; activación de invitaciones al iniciar sesión sin reactivar suspendidos.
+
+**Fase 2 · unitarias:** conector simulador (paginación, datos marcados como ficticios, capacidades reales, modos ambiguo/límite/credenciales), triaje (prioridad, riesgos, inyección).
+
+**Fase 2 · RLS:** otra organización no ve fuentes, interacciones ni historial; el gestor solo ve sus clientes; `config` de las fuentes ilegible; usuarios sin escritura en tablas de flujo ni acceso al remoto simulado; FK impide mezclar fuente y cliente; solo el simulador puede marcar datos simulados.
+
+**Fase 2 · integración y flujo** (`test/api/inbox.test.ts`, ejecutando los manejadores reales del worker): tabla SQL de transiciones = TypeScript; solo `connections.manage` crea fuentes; sincronización sin duplicados y con petición repetida idempotente; triaje y marca de simulado; **fallo de un conector sin afectar a los demás** y estado de cuenta correcto; barrido programa sincronizaciones vencidas; filtros, búsqueda, orden y paginación; aislamiento entre organizaciones y clientes; asignación y prioridad con historial; lotes por elemento y sin aprobación por lotes; **flujo completo publicado una sola vez y verificado**; aviso duplicado no republica; **editar después de aprobar invalida y cancela**; la BD rechaza publicar sin aprobación, con aprobación antigua o saltando estados; rechazo/devolución con motivo; revisión especializada obligatoria; **respuesta ambigua → consulta remota sin duplicar**; error definitivo → reintento manual que consulta antes de publicar; límite de peticiones con espera; **interruptor global y pausa de organización** bloquean sin perder el trabajo; edición de la reseña por su autor durante la revisión → vuelve a borrador; resumen y auditoría con datos reales.
+
+**E2E Fase 2 (Supabase real + worker):** fuente simulada → sincronización por el worker → bandeja con filtros y búsqueda → asignación por lotes → gestor redacta y solicita (sin poder aprobar) → aprobadora en móvil → edición que anula la solicitud → aprobación → worker publica una vez y verifica → panel y modo oscuro.
 
 **E2E (Supabase real):** login superadmin → bloqueo por MFA → alta TOTP real → creación de organización → email de invitación real (Mailpit) → aceptación y contraseña → panel → MFA del admin → alta de cliente → ubicación → auditoría → aislamiento → modo oscuro → móvil.
 
@@ -42,15 +53,15 @@ node apps/web/e2e/phase1-smoke.mjs
 |---|---|---|
 | 1-3 | Crear organización, cliente, asignar usuario | ✅ F1 (asignación cubierta por API) |
 | 4 | Configurar personalidad | F3 |
-| 5-6 | Conectar simulador, recibir reseña | F2 |
+| 5-6 | Conectar simulador, recibir reseña | ✅ F2 |
 | 7-8 | Analizar y generar respuesta IA | F3 |
-| 9-13 | Modificar, aprobar, publicar (conector de prueba), verificar, auditar | F2 |
+| 9-13 | Modificar, aprobar, publicar (conector de prueba), verificar, auditar | ✅ F2 |
 | 14 | Alerta por fallo de publicación | F5 |
 
 ## Pruebas adversariales pendientes
 
 * Reseña maliciosa que intenta ordenar acciones a la IA (F3).
-* Reintentos que no duplican publicaciones (F2: simulador con respuestas ambiguas).
-* Credencial revocada que no aparenta funcionar (F4).
-* Fallo parcial de un conector sin afectar a los demás (F2/F4).
-* Logs sin tokens: ya probado para cabeceras y auditoría; ampliar a logs del worker (F2).
+* ✅ Reintentos que no duplican publicaciones (F2, simulador ambiguo).
+* ✅ Fallo parcial de un conector sin afectar a los demás (F2, simulador).
+* Credencial revocada real que no aparenta funcionar (F4; simulada ✅ en F2).
+* Logs del worker sin tokens: el simulador no usa tokens; revisar con conectores reales (F4).

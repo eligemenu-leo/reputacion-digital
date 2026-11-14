@@ -12,6 +12,7 @@ cp apps/api/.env.example apps/api/.env   # completa DATABASE_URL, SUPABASE_URL, 
 cp apps/web/.env.example apps/web/.env   # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL
 pnpm --filter @rep/api bootstrap:superadmin --email tu@email --password 'una-contraseña-larga'
 pnpm dev                              # API :8787 · web :5173 · emails en http://127.0.0.1:54324
+pnpm --filter @rep/api dev:worker     # worker: sincronizaciones y publicaciones (pg-boss)
 ```
 
 Con `supabase start` se excluyen servicios no usados para ir más rápido:
@@ -40,9 +41,21 @@ Con `supabase start` se excluyen servicios no usados para ir más rápido:
    * `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
 6. Primer superadministrador: `bootstrap:superadmin` desde una máquina de confianza.
 
-## Build de la API
+## Build de la API y del worker
 
-En Fase 2 se añadirá un `Dockerfile` multi-stage que empaqueta API y worker con sus paquetes del workspace. Hasta entonces `pnpm --filter @rep/api dev` (tsx) es la forma soportada de ejecutarla.
+```bash
+pnpm --filter @rep/api build          # esbuild → apps/api/dist/server.js y dist/worker.js
+node --env-file=.env apps/api/dist/server.js    # API
+node --env-file=.env apps/api/dist/worker.js    # worker (1-N instancias)
+```
+
+Las dependencias de terceros se resuelven desde `node_modules` (instalar con `pnpm install --prod --filter @rep/api...`); los paquetes del monorepo van dentro del bundle. Variables nuevas en F2:
+
+* `AUTHOR_REF_PEPPER` (obligatoria en producción, ≥ 16 caracteres): seudonimiza los identificadores de autores.
+* `JOBS_ENABLED` (por defecto `true`): la API envía avisos a pg-boss. Si es `false`, las filas quedan en cola y el worker las recoge en su barrido.
+* pg-boss crea y migra su esquema `pgboss` al arrancar; el usuario de `DATABASE_URL` necesita permiso para ello.
+
+El `Dockerfile` se preparará cuando se elija hosting (pendiente de aprobación de costes).
 
 ## Copias de seguridad y recuperación
 

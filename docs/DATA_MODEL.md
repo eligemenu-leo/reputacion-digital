@@ -70,39 +70,35 @@ Implementado en `private.has_client_permission_in(org, client, perm)` (SECURITY 
 | `approver` | rol **extra** por cliente | `responses.approve` |
 | `client_viewer` | (fase posterior) | lectura e informes |
 
+## Fase 2 (implementado) — `20261114000100_inbox_workflow.sql`
+
+| Tabla | Propósito | Escritura |
+|---|---|---|
+| `connected_accounts` | Fuente conectada por cliente (y ubicación opcional). `provider`, `status` (conectada, caducada, error temporal…), `is_simulated` (solo `provider = 'simulator'`, impuesto por CHECK), `config` (no secreta, oculta a usuarios), programación (`next_run_at`), último error | API (service_role) tras `connections.manage` |
+| `provider_sync_runs` | Cada sincronización: disparador (manual, programada, webhook, recuperación), estado, contadores (leídas, nuevas, actualizadas, errores), motivo de fallo. Índice único parcial: una sola ejecución activa por cuenta | worker |
+| `external_interactions` | Interacción normalizada. Deduplicación `unique nulls not distinct (provider, connected_account_id, external_id)`. Estado, prioridad 1-4, responsable, banderas de riesgo, `requires_specialist`, respuesta existente, `is_simulated`, columna generada `search` (tsvector + GIN) | worker (ingesta), API (flujo) |
+| `interaction_versions` | Cada contenido observado del original (detecta ediciones del autor). Append-only | worker |
+| `response_drafts` | Borradores versionados `(interaction_id, version)` con `content_hash` (SHA-256 del texto exacto). Sin UPDATE | API |
+| `response_approvals` | Decisiones `approved / rejected / returned` ligadas a `draft_id` + `content_hash`, con nota y confirmación de revisión especializada. Append-only | API (`responses.approve`) |
+| `publication_jobs` | Trabajo de publicación con el texto congelado, `idempotency_key` única, estado, intentos, último error | API (al aprobar), worker |
+| `publication_attempts` | Cada llamada: `publish` o `status_check` (consulta previa al reintento), resultado | worker |
+| `publication_receipts` | Verificación final: id externo, hash del texto visible, estado del proveedor. Append-only | worker |
+| `interaction_events` | Historial completo de la interacción (estado origen/destino, actor persona o sistema, datos). Append-only | API, worker |
+| `private.interaction_transitions` | Pares de estados permitidos; un test verifica que coincide con `packages/shared` | — |
+| `private.simulator_items`, `private.simulator_remote` | «Lado remoto» del simulador (reseñas ficticias y respuestas publicadas). Inaccesible para usuarios | simulador |
+
+**Invariantes impuestas por la base de datos** (aunque el código fallara):
+
+1. `private.guard_interaction_state`: solo transiciones de la tabla `interaction_transitions` (SQLSTATE 23514).
+2. `private.guard_publication_job` (al insertar un trabajo): la **última** decisión de la interacción debe ser una aprobación, sobre el **último** borrador, y `sha256(content)` debe coincidir con el hash aprobado (42501). Por eso editar el texto después de aprobar anula la aprobación sin posibilidad de saltársela.
+3. `publication_jobs_one_live`: como máximo un trabajo `queued/running/published` por interacción → no hay segunda publicación accidental.
+4. `private.freeze_publication_job`: el texto, el borrador, la aprobación y la clave idempotente no cambian; `published` es terminal.
+5. Borradores, decisiones, versiones, recibos e historial son append-only (`private.forbid_mutation`).
+6. `authenticated` solo tiene `SELECT` (filtrado por RLS: `connections.read` o `interactions.read` sobre el cliente). Toda mutación pasa por la API tras comprobar permisos y por el worker.
+
+**Índices:** `(organization_id, state, original_created_at desc)` para la bandeja, `(client_id, original_created_at desc)`, `(assignee_id)` parcial para abiertas, GIN sobre `search`, `(interaction_id, id)` en eventos, `(status, updated_at)` en trabajos.
+
 ## Fases siguientes (diseño)
-
-### Fase 2 — Bandeja, estados, aprobaciones, auditoría operativa
-
-```sql
-create type interaction_state as enum ('new','analyzed','pending_response','draft_generated','pending_approval',
-  'approved','publishing','published','publish_failed','discarded','closed_no_response');
-
-external_interactions (
-  id uuid pk, organization_id, client_id, location_id null, connected_account_id null,
-  provider text, kind text,                      -- review | comment | reply | mention | web_mention
-  external_id text, external_parent_id text, url text,
-  author_display_name text, author_ref_hash text,-- seudonimizado (sha256 + pepper)
-  content text, language text, rating numeric(3,1), rating_scale smallint,
-  content_hash text, original_created_at timestamptz, first_seen_at, last_seen_at,
-  state interaction_state not null default 'new', priority smallint, assignee_id uuid,
-  has_existing_reply boolean, is_simulated boolean not null default false,
-  unique (provider, connected_account_id, external_id)
-);
-interaction_versions (interaction_id, content_hash, content, rating, observed_at)  -- ediciones del autor
-response_drafts (id, interaction_id, version int, content, source 'ai'|'human', ai_generation_id, created_by,
-                 content_hash, unique(interaction_id, version))                     -- cada edición = nueva versión
-response_approvals (id, draft_id, draft_version, content_hash, decision 'approved'|'rejected'|'returned',
-                    decided_by, decided_at, risk_flags jsonb, note)               -- append-only
-publication_jobs (id, draft_id, approval_id, idempotency_key unique, status, scheduled_at, ...,
-                  unique (interaction_id) where status in ('queued','running','published'))
-publication_attempts (job_id, attempt_no, started_at, finished_at, outcome, provider_status, error_kind)
-publication_receipts (job_id, external_reply_id, published_content_hash, verified_at, raw jsonb)
-```
-
-* Trigger `interaction_state_guard` replica `nextInteractionState()` (shared) en SQL.
-* La aprobación se ata a `content_hash`: si el borrador cambia, la aprobación deja de ser válida (la máquina de estados vuelve a `draft_generated`).
-* Índices: `(organization_id, state, original_created_at desc)`, `(client_id, state)`, `(assignee_id) where state in (...)`, GIN `to_tsvector('simple', content)` para búsqueda.
 
 ### Fase 3 — IA
 

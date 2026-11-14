@@ -53,3 +53,28 @@ Formato: contexto → decisión → alternativas → consecuencias.
 ## ADR-012 · Tests de RLS sobre PostgreSQL con *shim* de Supabase
 * **Decisión:** las pruebas de políticas se ejecutan sobre PostgreSQL ≥ 15 con un shim (`supabase/tests/supabase_shim.sql`) que reproduce roles, `auth.uid()` y privilegios por defecto. Las mismas migraciones se validan además contra el stack real de Supabase (`supabase start` + `supabase db lint`) y con la prueba e2e.
 * **Motivo:** CI rápido y sin Docker; la verificación con Supabase real se hace en local/staging.
+
+## ADR-013 · Worker como segundo proceso del paquete API (14/11/2026)
+* **Decisión:** `apps/api/src/worker.ts` comparte `src/domain/*` con la API y se despliega como proceso aparte (`start:worker`). Sustituye a la carpeta `apps/worker` prevista en la Fase 0.
+* **Motivo:** las reglas de flujo (transiciones, aprobación, publicación) deben ser idénticas en API y worker; un solo paquete evita duplicarlas o crear otro paquete compartido con dependencias de BD.
+* **Consecuencia:** un único artefacto de build (esbuild, `dist/server.js` y `dist/worker.js`); escalan por separado.
+
+## ADR-014 · Outbox en tablas + avisos pg-boss tras el commit
+* **Decisión:** el estado de sincronizaciones y publicaciones vive en tablas propias; pg-boss solo transporta avisos `{id}`. Un barrido periódico re-encola lo pendiente.
+* **Alternativa descartada:** usar pg-boss como fuente de verdad (`send` dentro de la transacción). Acopla el esquema de la cola al de negocio y complica la auditoría.
+* **Consecuencia:** tolerante a pérdidas de mensajes y a caídas; manejadores idempotentes.
+
+## ADR-015 · La aprobación se ata al hash SHA-256 del texto exacto
+* **Decisión:** el aprobador envía el `contentHash` del texto que ve (calculado en su navegador). La API lo compara con el último borrador y la BD vuelve a comprobarlo al crear el trabajo de publicación.
+* **Consecuencia:** cualquier edición posterior (o concurrente) invalida la aprobación; no se publica un texto distinto del aprobado.
+
+## ADR-016 · Aprobar = autorizar la publicación
+* **Decisión:** en el MVP, aprobar (`responses.approve`) encola la publicación automáticamente. `responses.publish` solo se exige para reintentar manualmente (o `responses.approve`). No se permite aprobar ni publicar por lotes.
+* **Pendiente de validar con Leo:** si se quiere separación estricta de funciones (quien redacta no puede aprobar). Hoy el permiso lo decide el rol; una persona con ambos permisos podría hacer las dos cosas.
+
+## ADR-017 · Triaje determinista provisional
+* **Decisión:** hasta la IA (F3), prioridad y banderas de riesgo se calculan con reglas explícitas (valoración ≤ 2 → alta; palabras de ámbito legal, sanitario, seguridad o discriminación → crítica + revisión especializada; textos que dan instrucciones al sistema → marca `prompt_injection`).
+* **Consecuencia:** explicable y probado; se sustituirá o combinará con la clasificación IA en F3. La prioridad nunca baja automáticamente al editarse una reseña.
+
+## ADR-018 · Simulador con estado remoto en el esquema `private`
+* **Decisión:** el proveedor simulado guarda sus reseñas ficticias y respuestas en `private.simulator_*`, de modo que el worker y la API ven el mismo «remoto» y se pueden probar ambigüedades y duplicados de verdad. Bloqueado en `NODE_ENV=production`; todos sus datos llevan `is_simulated = true` y la etiqueta «Simulado» en la interfaz.

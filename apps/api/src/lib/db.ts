@@ -56,3 +56,12 @@ export async function withService<T>(
     return fn(tx);
   }) as Promise<T>;
 }
+
+/**
+ * Dentro de una transacción withUser, y SOLO después de comprobar permisos en
+ * código, pasa a service_role para escribir en tablas de flujo que el rol
+ * `authenticated` solo puede leer. Las claims (actor) se conservan para la auditoría.
+ */
+export async function elevate(tx: Tx): Promise<void> {
+  await tx.unsafe('set local role service_role');
+}

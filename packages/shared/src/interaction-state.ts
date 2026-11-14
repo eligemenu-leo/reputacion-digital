@@ -122,3 +122,23 @@ export const TERMINAL_STATES: readonly InteractionState[] = ['published'];
 export function canPublish(state: InteractionState): boolean {
   return state === 'approved' || state === 'publish_failed';
 }
+
+/** Pares (origen, destino) permitidos: debe coincidir con private.interaction_transitions. */
+export function allowedTransitionPairs(): Array<[InteractionState, InteractionState]> {
+  const pairs = new Set<string>();
+  for (const from of INTERACTION_STATES)
+    for (const to of Object.values(T[from])) pairs.add(`${from}>${to}`);
+  return [...pairs].sort().map((p) => p.split('>') as [InteractionState, InteractionState]);
+}
+
+/** Estados en los que la interacción sigue abierta (aparece como pendiente en la bandeja). */
+export const OPEN_STATES: readonly InteractionState[] = [
+  'new',
+  'analyzed',
+  'pending_response',
+  'draft_generated',
+  'pending_approval',
+  'approved',
+  'publishing',
+  'publish_failed',
+];

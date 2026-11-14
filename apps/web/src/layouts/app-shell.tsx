@@ -59,12 +59,11 @@ export function AppShell() {
     {
       title: 'Operativa',
       items: [
-        { to: `${base}/bandeja`, label: 'Bandeja', icon: <Inbox />, phase: 'Fase 2' },
+        { to: `${base}/bandeja`, label: 'Bandeja', icon: <Inbox /> },
         {
           to: `${base}/aprobaciones`,
           label: 'Aprobaciones',
           icon: <CheckSquare />,
-          phase: 'Fase 2',
         },
         { to: `${base}/alertas`, label: 'Alertas', icon: <Bell />, phase: 'Fase 5' },
         { to: `${base}/informes`, label: 'Informes', icon: <FileBarChart />, phase: 'Fase 5' },
@@ -74,7 +73,7 @@ export function AppShell() {
       title: 'Gestión',
       items: [
         { to: `${base}/clientes`, label: 'Clientes', icon: <Building2 /> },
-        { to: `${base}/fuentes`, label: 'Fuentes conectadas', icon: <Plug />, phase: 'Fase 4' },
+        { to: `${base}/fuentes`, label: 'Fuentes conectadas', icon: <Plug /> },
         {
           to: `${base}/usuarios`,
           label: 'Usuarios y permisos',

@@ -118,7 +118,7 @@ try {
   // 6. MFA del administrador y alta de cliente
   await p2.getByRole('link', { name: 'Configuración' }).click();
   await enrollMfa(p2);
-  await p2.getByRole('link', { name: 'Clientes' }).click();
+  await p2.getByRole('link', { name: 'Clientes', exact: true }).click();
   await p2
     .getByRole('button', { name: /Nuevo cliente/ })
     .first()
@@ -151,7 +151,7 @@ try {
     .first()
     .waitFor();
   await p2.screenshot({ path: `${SHOTS}/06-audit.png` });
-  await p2.getByRole('link', { name: 'Panel' }).click();
+  await p2.getByRole('link', { name: 'Panel', exact: true }).click();
   await p2.getByText('Restaurante La Brasa (ficticio)').waitFor();
   await p2.screenshot({ path: `${SHOTS}/07-dashboard.png` });
   log('Auditoría y panel reflejan los cambios');
@@ -169,7 +169,7 @@ try {
 
   // 9. Modo oscuro y móvil
   await p2.getByRole('button', { name: /modo oscuro/ }).click();
-  await p2.getByRole('link', { name: 'Clientes' }).click();
+  await p2.getByRole('link', { name: 'Clientes', exact: true }).click();
   await p2.getByRole('table').waitFor();
   await p2.screenshot({ path: `${SHOTS}/08-clients-dark.png` });
   await p2.setViewportSize({ width: 390, height: 844 });
