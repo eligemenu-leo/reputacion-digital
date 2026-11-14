@@ -53,14 +53,25 @@ export function GoogleCard({
             URI de redirección para Google Cloud:{' '}
             <button
               type="button"
-              className="inline-flex max-w-full items-center gap-1 break-all rounded font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
+              className="inline max-w-full rounded text-left font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
               onClick={() =>
                 void navigator.clipboard
                   ?.writeText(status.redirectUri)
                   .then(() => toast('success', 'URI copiada'))
               }
             >
-              {status.redirectUri} <Copy className="size-3 shrink-0" aria-hidden />
+              {/* Corta solo tras «/» para que no se lea mal al copiarla a mano. */}
+              {status.redirectUri.split('/').map((part, i, all) => (
+                <span key={i}>
+                  {part}
+                  {i < all.length - 1 && (
+                    <>
+                      /<wbr />
+                    </>
+                  )}
+                </span>
+              ))}
+              <Copy className="ml-1 inline size-3 align-[-2px]" aria-hidden />
             </button>
           </p>
         </div>

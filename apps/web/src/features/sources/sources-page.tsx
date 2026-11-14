@@ -183,7 +183,7 @@ export function SourcesPage() {
         ) : (
           <ul className="divide-y divide-border">
             {q.data?.items.map((c) => (
-              <li key={c.id} className="flex flex-col gap-3 p-4 xl:flex-row xl:items-center">
+              <li key={c.id} className="flex flex-col gap-3 p-4 2xl:flex-row 2xl:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{c.displayName}</span>
@@ -213,10 +213,10 @@ export function SourcesPage() {
                   )}
                 </div>
                 {c.canManage && (
-                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 2xl:justify-end">
                     {c.isSimulated && (
                       <>
-                        <div className="w-48">
+                        <div className="w-60">
                           <Select
                             aria-label="Modo de publicación simulado"
                             className="h-8 text-[13px]"
@@ -234,7 +234,7 @@ export function SourcesPage() {
                             <option value="credentials_expired">Credenciales caducadas</option>
                           </Select>
                         </div>
-                        <div className="w-48">
+                        <div className="w-60">
                           <Select
                             aria-label="Modo de sincronización simulado"
                             className="h-8 text-[13px]"
@@ -293,7 +293,7 @@ export function SourcesPage() {
             <Lock className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
             <div>
               <p className="text-sm font-medium">{p.name}</p>
-              <p className="text-xs text-muted">No disponible · {p.reason} (Fase 4)</p>
+              <p className="text-xs text-muted">No disponible · {p.reason} (próximo bloque)</p>
             </div>
           </Card>
         ))}
