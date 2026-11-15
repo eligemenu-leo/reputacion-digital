@@ -26,7 +26,7 @@ import { AppError, uuidSchema } from '@rep/shared';
 import { z } from 'zod';
 import { requireAuth } from '../app';
 import { elevate, withService, withUser, type Tx } from '../lib/db';
-import { requireClientAction } from '../lib/authz';
+import { requireClientAction, requireOrgPermission } from '../lib/authz';
 import { parse } from '../lib/http';
 import type { AuthContext } from '../lib/auth';
 import {
@@ -58,6 +58,7 @@ const connectSchema = z
           .object({
             provider: z.enum(['facebook_page', 'instagram_business']),
             externalId: z.string().regex(/^\d{1,40}$/),
+            clientId: uuidSchema,
             locationId: uuidSchema.nullable().default(null),
           })
           .strict(),
@@ -126,9 +127,10 @@ export function assetsFor(pages: MetaPage[], scopes: string[]): MetaAsset[] {
 export async function metaRoutes(app: FastifyInstance) {
   const { sql, config, integrations, queue } = app.deps;
 
-  app.post('/clients/:clientId/connections/meta/start', async (req) => {
+  /** La autorización es de la organización: cada página se asigna después a su cliente (ADR-028). */
+  app.post('/organizations/:orgId/connections/meta/start', async (req) => {
     const auth = requireAuth(req);
-    const clientId = parse(uuidSchema, (req.params as { clientId: string }).clientId);
+    const orgId = parse(uuidSchema, (req.params as { orgId: string }).orgId);
     const meta = integrations.meta;
     if (!meta || !integrations.box) {
       throw new AppError(
@@ -137,17 +139,14 @@ export async function metaRoutes(app: FastifyInstance) {
       );
     }
     return withUser(sql, auth, async (tx) => {
-      await requireClientAction(tx, clientId, 'connections.manage');
-      const [c] = await tx<{ organizationId: string }[]>`
-        select organization_id from public.clients where id = ${clientId}`;
+      await requireOrgPermission(tx, auth, orgId, 'connections.manage');
       const state = randomBytes(32).toString('base64url');
       const stateHash = sha256(state);
       await elevate(tx);
       await tx`
         insert into private.oauth_states
           (state_hash, provider, organization_id, client_id, user_id, code_verifier_sealed, redirect_uri)
-        values (${stateHash}, 'meta', ${c!.organizationId}, ${clientId}, ${auth.userId}, null,
-                ${integrations.metaRedirectUri})`;
+        values (${stateHash}, 'meta', ${orgId}, null, ${auth.userId}, null, ${integrations.metaRedirectUri})`;
       return {
         authorizationUrl: meta
           .graph()
@@ -185,12 +184,10 @@ export async function metaRoutes(app: FastifyInstance) {
 
     const stateHash = sha256(q.state);
     const st = await withService(sql, null, async (tx) => {
-      const [s] = await tx<
-        { organizationId: string; clientId: string; userId: string; redirectUri: string }[]
-      >`
+      const [s] = await tx<{ organizationId: string; userId: string; redirectUri: string }[]>`
         update private.oauth_states set consumed_at = now()
          where state_hash = ${stateHash} and consumed_at is null and expires_at > now() and provider = 'meta'
-        returning organization_id, client_id, user_id, redirect_uri`;
+        returning organization_id, user_id, redirect_uri`;
       return s ?? null;
     });
     if (!st) return failWith('invalid_state');
@@ -221,11 +218,11 @@ export async function metaRoutes(app: FastifyInstance) {
     const metaUser = creds.value.meta?.userId;
     const credentialId = await withService(sql, actor, async (tx) => {
       const [p] = await tx<{ v: boolean }[]>`
-        select private.has_client_permission(${st.clientId}::uuid, 'connections.manage') as v`;
+        select private.has_org_permission(${st.organizationId}::uuid, 'connections.manage') as v`;
       if (!p?.v) return null;
       const id = await saveCredential(tx, box, {
         organizationId: st.organizationId,
-        clientId: st.clientId,
+        clientId: null,
         provider: 'meta',
         credentials: { ...creds.value, meta: undefined },
         userId: st.userId,
@@ -236,7 +233,6 @@ export async function metaRoutes(app: FastifyInstance) {
       });
       await audit(tx, {
         organizationId: st.organizationId,
-        clientId: st.clientId,
         actor: { userId: st.userId, requestId: req.id },
         action: 'connection.oauth_authorized',
         entityType: 'provider_credentials',
@@ -246,7 +242,7 @@ export async function metaRoutes(app: FastifyInstance) {
       return id;
     });
     if (!credentialId) return failWith('forbidden');
-    return back(reply, { meta: credentialId, client: st.clientId });
+    return back(reply, { meta: credentialId });
   });
 
   async function ownCredential(tx: Tx, auth: AuthContext, id: string) {
@@ -255,20 +251,41 @@ export async function metaRoutes(app: FastifyInstance) {
       {
         id: string;
         organizationId: string;
-        clientId: string;
         authorizedBy: string | null;
         revokedAt: Date | null;
       }[]
     >`
-      select id, organization_id, client_id, authorized_by, revoked_at from private.provider_credentials
+      select id, organization_id, authorized_by, revoked_at from private.provider_credentials
        where id = ${id} and provider = 'meta'`;
     if (!c || c.authorizedBy !== auth.userId || c.revokedAt) {
       throw new AppError('NOT_FOUND', 'Autorización de Meta no encontrada o caducada');
     }
     await tx.unsafe('set local role authenticated');
-    await requireClientAction(tx, c.clientId, 'connections.manage');
+    await requireOrgPermission(tx, auth, c.organizationId, 'connections.manage');
     return c;
   }
+
+  /**
+   * Autorizaciones de Meta vigentes del usuario en la organización: permiten
+   * asignar más páginas después sin volver a pasar por Facebook.
+   */
+  app.get('/organizations/:orgId/meta/credentials', async (req) => {
+    const auth = requireAuth(req);
+    const orgId = parse(uuidSchema, (req.params as { orgId: string }).orgId);
+    return withUser(sql, auth, async (tx) => {
+      await requireOrgPermission(tx, auth, orgId, 'connections.manage');
+      await elevate(tx);
+      const items = await tx<{ id: string; authorizedAt: Date; sources: number }[]>`
+        select c.id, c.authorized_at,
+               (select count(*)::int from public.connected_accounts a
+                 where a.credential_id = c.id and a.status <> 'disconnected') as sources
+          from private.provider_credentials c
+         where c.organization_id = ${orgId} and c.provider = 'meta' and c.authorized_by = ${auth.userId}
+           and c.revoked_at is null
+         order by c.authorized_at desc limit 10`;
+      return { items };
+    });
+  });
 
   /** Lee en vivo las páginas de la autorización (con el token de usuario). */
   async function livePages(id: string) {
@@ -289,24 +306,37 @@ export async function metaRoutes(app: FastifyInstance) {
     const id = parse(uuidSchema, (req.params as { id: string }).id);
     const cred = await withUser(sql, auth, (tx) => ownCredential(tx, auth, id));
     const { loaded, pages } = await livePages(id);
-    const connected = await withUser(
-      sql,
-      auth,
-      (tx) =>
-        tx<{ provider: string; externalAccountId: string }[]>`
-        select provider, external_account_id from public.connected_accounts
-         where client_id = ${cred.clientId} and provider in ('facebook_page', 'instagram_business')
-           and status <> 'disconnected'`,
+    const { connected, clients } = await withUser(sql, auth, async (tx) => ({
+      // En toda la organización: una página pertenece a un solo cliente.
+      connected: await tx<
+        { provider: string; externalAccountId: string; clientId: string; clientName: string }[]
+      >`
+        select a.provider, a.external_account_id, a.client_id, c.name as client_name
+          from public.connected_accounts a join public.clients c on c.id = a.client_id
+         where a.organization_id = ${cred.organizationId}
+           and a.provider in ('facebook_page', 'instagram_business') and a.status <> 'disconnected'`,
+      // Clientes a los que este usuario puede asignar fuentes.
+      clients: await tx<{ id: string; name: string }[]>`
+        select id, name from public.clients
+         where organization_id = ${cred.organizationId} and archived_at is null
+           and private.has_client_permission(id, 'connections.manage')
+         order by name`,
+    }));
+    const already = new Map(
+      connected.map((c) => [
+        `${c.provider}:${c.externalAccountId}`,
+        { clientId: c.clientId, clientName: c.clientName },
+      ]),
     );
-    const already = new Set(connected.map((c) => `${c.provider}:${c.externalAccountId}`));
     return {
-      clientId: cred.clientId,
+      organizationId: cred.organizationId,
+      clients,
       missingScopes: metaScopes(Boolean(integrations.meta?.webhookVerifyToken)).filter(
         (s) => !loaded.credentials.scopes.includes(s),
       ),
       items: assetsFor(pages, loaded.credentials.scopes).map((a) => ({
         ...a,
-        alreadyConnected: already.has(`${a.provider}:${a.externalId}`),
+        connectedTo: already.get(`${a.provider}:${a.externalId}`) ?? null,
       })),
     };
   });
@@ -338,6 +368,43 @@ export async function metaRoutes(app: FastifyInstance) {
         'Alguna página o cuenta no se puede leer con los permisos concedidos',
       );
     }
+    const keys = picked.map((p) => `${p.item.provider}:${p.item.externalId}`);
+    if (new Set(keys).size !== keys.length) {
+      throw new AppError('VALIDATION', 'Cada página o cuenta se asigna a un solo cliente');
+    }
+    // Cada cliente debe ser de la organización y el usuario debe poder gestionar sus fuentes.
+    await withUser(sql, auth, async (tx) => {
+      const cred = await ownCredential(tx, auth, id);
+      for (const clientId of new Set(picked.map((p) => p.item.clientId))) {
+        await requireClientAction(tx, clientId, 'connections.manage');
+        const [c] = await tx<{ organizationId: string }[]>`
+          select organization_id from public.clients where id = ${clientId}`;
+        if (c?.organizationId !== cred.organizationId) {
+          throw new AppError('NOT_FOUND', 'Cliente no encontrado');
+        }
+      }
+      const taken = await tx<
+        { provider: string; externalAccountId: string; clientId: string; name: string }[]
+      >`
+        select a.provider, a.external_account_id, a.client_id, c.name from public.connected_accounts a
+          join public.clients c on c.id = a.client_id
+         where a.organization_id = ${cred.organizationId} and a.status <> 'disconnected'
+           and a.provider || ':' || a.external_account_id = any(${keys})`;
+      // Volver a conectar al mismo cliente (p. ej. tras caducar) sí se permite.
+      const clash = taken.find(
+        (t) =>
+          picked.find(
+            (p) =>
+              `${p.item.provider}:${p.item.externalId}` === `${t.provider}:${t.externalAccountId}`,
+          )!.item.clientId !== t.clientId,
+      );
+      if (clash) {
+        throw new AppError(
+          'CONFLICT',
+          `«${assets.get(`${clash.provider}:${clash.externalAccountId}`)!.displayName}» ya está conectada al cliente «${clash.name}». Desconéctala allí para asignarla a otro.`,
+        );
+      }
+    });
     const pageById = new Map(pages.map((p) => [p.id, p]));
     const pageIds = [...new Set(picked.map((p) => p.asset!.pageId))];
 
@@ -395,7 +462,7 @@ export async function metaRoutes(app: FastifyInstance) {
           insert into public.connected_accounts
             (organization_id, client_id, location_id, provider, external_account_id, display_name, status, credential_id,
              granted_scopes, capabilities, config, authorized_at, authorized_by, next_run_at)
-          values (${cred.organizationId}, ${cred.clientId}, ${item.locationId}, ${a.provider},
+          values (${cred.organizationId}, ${item.clientId}, ${item.locationId}, ${a.provider},
                   ${a.externalId}, ${a.displayName.slice(0, 200)}, 'connected', ${id}, ${current!.credentials.scopes},
                   ${caps}, ${tx.json(cfg)}, now(), ${auth.userId}, now())
           on conflict on constraint connected_accounts_unique do update set
@@ -408,7 +475,7 @@ export async function metaRoutes(app: FastifyInstance) {
         const run = await enqueueSync(tx, row!.id, 'manual', auth.userId);
         await audit(tx, {
           organizationId: cred.organizationId,
-          clientId: cred.clientId,
+          clientId: item.clientId,
           actor: { userId: auth.userId, requestId: req.id },
           action: 'connection.connect',
           entityType: 'connected_accounts',

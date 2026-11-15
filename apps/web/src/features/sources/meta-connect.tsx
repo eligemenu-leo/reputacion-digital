@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CheckCircle2, ExternalLink, Lock, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Lock, TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { ClientListItem, Paginated } from '@/lib/types';
 import { Badge, Card, ErrorState, Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/field';
@@ -28,12 +27,32 @@ export function MetaCard({
   status,
   orgId,
   canConnect,
+  onPickPages,
 }: {
   status: IntegrationsStatus['meta'] | undefined;
   orgId: string;
   canConnect: boolean;
+  /** Abre la asignación de páginas con una autorización ya existente. */
+  onPickPages: (credentialId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const creds = useQuery({
+    queryKey: ['meta-credentials', orgId],
+    enabled: Boolean(status?.configured && canConnect),
+    queryFn: () =>
+      api<{ items: { id: string; authorizedAt: string; sources: number }[] }>(
+        `/organizations/${orgId}/meta/credentials`,
+      ),
+    retry: false,
+  });
+  const start = useMutation({
+    mutationFn: () =>
+      api<{ authorizationUrl: string }>(`/organizations/${orgId}/connections/meta/start`, {
+        method: 'POST',
+      }),
+    onSuccess: (r) => window.location.assign(r.authorizationUrl),
+    onError: (e) => toast('error', e.message),
+  });
   if (!status) return <Skeleton className="h-24" />;
   if (!status.configured) {
     return (
@@ -55,72 +74,38 @@ export function MetaCard({
       </Card>
     );
   }
+  const existing = creds.data?.items[0];
   return (
-    <Card className="flex items-start gap-3 p-4">
+    <Card className="flex flex-wrap items-start gap-3 p-4">
       <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-hidden />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-48">
         <p className="text-sm font-medium">{NAME}</p>
         <p className="text-xs text-muted">
-          Disponible. Necesitas una cuenta de Facebook con acceso a la página (y a su Instagram
-          profesional vinculado).
+          Conecta la cuenta de Facebook de la agencia una vez y asigna cada página o Instagram a su
+          cliente.
           {!status.webhooks && ' Sin avisos en tiempo real: se sincroniza cada hora.'}
         </p>
       </div>
       {canConnect && (
-        <Button size="sm" onClick={() => setOpen(true)} aria-label="Conectar Facebook e Instagram">
-          Conectar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {existing && (
+            <Button size="sm" variant="secondary" onClick={() => onPickPages(existing.id)}>
+              Asignar páginas
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={() => start.mutate()}
+            loading={start.isPending}
+            aria-label={
+              existing ? 'Volver a autorizar en Facebook' : 'Conectar Facebook e Instagram'
+            }
+          >
+            {existing ? 'Volver a autorizar' : 'Conectar'}
+          </Button>
+        </div>
       )}
-      {open && <StartMetaSheet orgId={orgId} onClose={() => setOpen(false)} />}
     </Card>
-  );
-}
-
-function StartMetaSheet({ orgId, onClose }: { orgId: string; onClose: () => void }) {
-  const toast = useToast();
-  const [clientId, setClientId] = useState('');
-  const clients = useQuery({
-    queryKey: ['clients', orgId, 'all'],
-    queryFn: () => api<Paginated<ClientListItem>>(`/organizations/${orgId}/clients?pageSize=100`),
-  });
-  const start = useMutation({
-    mutationFn: () =>
-      api<{ authorizationUrl: string }>(`/clients/${clientId}/connections/meta/start`, {
-        method: 'POST',
-      }),
-    onSuccess: (r) => window.location.assign(r.authorizationUrl),
-    onError: (e) => toast('error', e.message),
-  });
-  return (
-    <Sheet
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title="Conectar Facebook e Instagram"
-      description="Irás a Facebook para autorizar el acceso. Después eliges qué páginas y cuentas de Instagram conectar a este cliente. No se publica nada sin aprobación."
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={() => start.mutate()} loading={start.isPending} disabled={!clientId}>
-            Ir a Facebook <ExternalLink className="size-3.5" aria-hidden />
-          </Button>
-        </>
-      }
-    >
-      <Field label="Cliente" required>
-        {(f) => (
-          <Select {...f} value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Elige un cliente</option>
-            {clients.data?.items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Field>
-    </Sheet>
   );
 }
 
@@ -132,10 +117,47 @@ interface MetaAsset {
   canRead: boolean;
   canReply: boolean;
   ineligibilityReason?: string;
-  alreadyConnected: boolean;
+  connectedTo: { clientId: string; clientName: string } | null;
 }
 
 const keyOf = (a: Pick<MetaAsset, 'provider' | 'externalId'>) => `${a.provider}:${a.externalId}`;
+
+interface Pick_ {
+  clientId: string;
+  locationId: string | null;
+}
+
+/** Ubicación opcional dentro del cliente elegido. */
+function LocationSelect({
+  clientId,
+  value,
+  onChange,
+}: {
+  clientId: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const client = useQuery({
+    queryKey: ['client', clientId],
+    queryFn: () =>
+      api<{ name: string; locations: { id: string; name: string }[] }>(`/clients/${clientId}`),
+  });
+  if (!client.data?.locations.length) return null;
+  return (
+    <Field label="Ubicación">
+      {(f) => (
+        <Select {...f} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+          <option value="">Sin asignar</option>
+          {client.data!.locations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
+  );
+}
 
 export function SelectMetaAssetsSheet({
   credentialId,
@@ -147,31 +169,28 @@ export function SelectMetaAssetsSheet({
   onConnected: () => void;
 }) {
   const toast = useToast();
-  const [picked, setPicked] = useState<Record<string, string | null>>({});
+  const [picked, setPicked] = useState<Record<string, Pick_>>({});
   const q = useQuery({
     queryKey: ['meta-assets', credentialId],
     queryFn: () =>
-      api<{ clientId: string; missingScopes: string[]; items: MetaAsset[] }>(
-        `/meta/credentials/${credentialId}/assets`,
-      ),
+      api<{
+        organizationId: string;
+        clients: { id: string; name: string }[];
+        missingScopes: string[];
+        items: MetaAsset[];
+      }>(`/meta/credentials/${credentialId}/assets`),
     retry: false,
   });
-  const client = useQuery({
-    queryKey: ['client', q.data?.clientId],
-    enabled: Boolean(q.data?.clientId),
-    queryFn: () =>
-      api<{ name: string; locations: { id: string; name: string }[] }>(
-        `/clients/${q.data!.clientId}`,
-      ),
-  });
+  const entries = Object.entries(picked);
+  const incomplete = entries.some(([, v]) => !v.clientId);
   const connect = useMutation({
     mutationFn: () =>
       api<{ items: { id: string }[] }>(`/meta/credentials/${credentialId}/connect`, {
         method: 'POST',
         body: {
-          items: Object.entries(picked).map(([k, locationId]) => {
+          items: entries.map(([k, v]) => {
             const [provider, externalId] = k.split(':');
-            return { provider, externalId, locationId };
+            return { provider, externalId, clientId: v.clientId, locationId: v.locationId };
           }),
         },
       }),
@@ -185,14 +204,20 @@ export function SelectMetaAssetsSheet({
     },
     onError: (e) => toast('error', e.message),
   });
-  const count = Object.keys(picked).length;
+  const count = entries.length;
   const toggle = (k: string) =>
     setPicked((p) => {
       const n = { ...p };
       if (k in n) delete n[k];
-      else n[k] = null;
+      else
+        n[k] = {
+          clientId: q.data?.clients.length === 1 ? q.data.clients[0]!.id : '',
+          locationId: null,
+        };
       return n;
     });
+  const set = (k: string, v: Partial<Pick_>) =>
+    setPicked((p) => ({ ...p, [k]: { ...p[k]!, ...v } }));
   const groups = [
     { title: 'Páginas de Facebook', provider: 'facebook_page' as const },
     { title: 'Instagram profesional', provider: 'instagram_business' as const },
@@ -202,18 +227,18 @@ export function SelectMetaAssetsSheet({
     <Sheet
       open
       onOpenChange={(o) => !o && onClose()}
-      title="Elige páginas y cuentas"
-      description={
-        client.data
-          ? `Se conectarán al cliente «${client.data.name}».`
-          : 'Páginas a las que tu cuenta de Facebook tiene acceso.'
-      }
+      title="Asignar páginas a clientes"
+      description="Marca cada página o cuenta de Instagram que quieras gestionar y elige su cliente. Las que no marques no se leen. No se publica nada sin aprobación."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={() => connect.mutate()} loading={connect.isPending} disabled={!count}>
+          <Button
+            onClick={() => connect.mutate()}
+            loading={connect.isPending}
+            disabled={!count || incomplete}
+          >
             Conectar {count > 0 ? count : ''}
           </Button>
         </>
@@ -233,10 +258,15 @@ export function SelectMetaAssetsSheet({
         </p>
       ) : (
         <div className="space-y-5">
+          {q.data!.clients.length === 0 && (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+              No hay clientes a los que puedas asignar fuentes. Crea uno en Clientes.
+            </p>
+          )}
           {q.data!.missingScopes.length > 0 && (
             <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
               No se concedieron todos los permisos ({q.data!.missingScopes.join(', ')}). Algunas
-              acciones no estarán disponibles; puedes volver a conectar para concederlos.
+              acciones no estarán disponibles; puedes volver a autorizar para concederlos.
             </p>
           )}
           {groups.map((g) => {
@@ -249,7 +279,7 @@ export function SelectMetaAssetsSheet({
                 </legend>
                 {items.map((a) => {
                   const k = keyOf(a);
-                  const checked = k in picked;
+                  const sel = picked[k];
                   const inputId = `meta-${k.replace(/\W/g, '-')}`;
                   return (
                     <div
@@ -261,15 +291,15 @@ export function SelectMetaAssetsSheet({
                           id={inputId}
                           type="checkbox"
                           className="mt-1 size-4 accent-[var(--color-accent)]"
-                          checked={checked}
-                          disabled={a.alreadyConnected || !a.canRead}
+                          checked={Boolean(sel)}
+                          disabled={Boolean(a.connectedTo) || !a.canRead}
                           onChange={() => toggle(k)}
                         />
                         <label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer">
                           <span className="block text-sm font-medium">{a.displayName}</span>
                           <span className="mt-1 flex flex-wrap gap-1.5">
-                            {a.alreadyConnected ? (
-                              <Badge tone="neutral">Ya conectada</Badge>
+                            {a.connectedTo ? (
+                              <Badge tone="neutral">Conectada a {a.connectedTo.clientName}</Badge>
                             ) : !a.canRead ? (
                               <Badge tone="neutral">
                                 <Lock className="size-3" aria-hidden /> Sin acceso
@@ -282,33 +312,40 @@ export function SelectMetaAssetsSheet({
                               </Badge>
                             )}
                           </span>
-                          {a.ineligibilityReason && (
+                          {a.ineligibilityReason && !a.connectedTo && (
                             <span className="mt-1 block text-xs text-muted">
                               {a.ineligibilityReason}.
                             </span>
                           )}
                         </label>
                       </div>
-                      {checked && (client.data?.locations.length ?? 0) > 0 && (
-                        <div className="mt-3 pl-7">
-                          <Field label="Ubicación del cliente">
+                      {sel && (
+                        <div className="mt-3 grid gap-3 pl-7 sm:grid-cols-2">
+                          <Field label="Cliente" required>
                             {(f) => (
                               <Select
                                 {...f}
-                                value={picked[k] ?? ''}
+                                value={sel.clientId}
                                 onChange={(e) =>
-                                  setPicked((p) => ({ ...p, [k]: e.target.value || null }))
+                                  set(k, { clientId: e.target.value, locationId: null })
                                 }
                               >
-                                <option value="">Sin asignar</option>
-                                {client.data!.locations.map((cl) => (
-                                  <option key={cl.id} value={cl.id}>
-                                    {cl.name}
+                                <option value="">Elige un cliente</option>
+                                {q.data!.clients.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}
                                   </option>
                                 ))}
                               </Select>
                             )}
                           </Field>
+                          {sel.clientId && (
+                            <LocationSelect
+                              clientId={sel.clientId}
+                              value={sel.locationId}
+                              onChange={(v) => set(k, { locationId: v })}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -317,6 +354,10 @@ export function SelectMetaAssetsSheet({
               </fieldset>
             );
           })}
+          <p className="text-xs text-muted">
+            Para pasar una página a otro cliente, desconéctala en Fuentes conectadas y vuelve a
+            asignarla aquí.
+          </p>
         </div>
       )}
     </Sheet>

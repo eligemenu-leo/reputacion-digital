@@ -64,6 +64,11 @@ const authAdmin = {
 beforeAll(async () => {
   seed = db();
   w = await seedWorld(seed);
+  // El equipo también lleva «Hotel Beta», el cliente al que va el Instagram en estas pruebas.
+  await seed`
+    insert into public.client_members (organization_id, client_id, user_id, role_id)
+    select ${w.orgA}, ${w.clientA2}, m.user_id, m.role_id from public.client_members m
+     where m.client_id = ${w.clientA1}`;
   const config = env({
     CREDENTIALS_ENCRYPTION_KEYS: KEY,
     META_APP_ID: meta.appId,
@@ -146,7 +151,7 @@ const drain = async (q: QueueName, fn: (id: string) => Promise<unknown>) => {
 };
 
 async function authorize(scopes?: string[], user = w.users.adminA) {
-  const start = await call('POST', `/v1/clients/${w.clientA1}/connections/meta/start`, user);
+  const start = await call('POST', `/v1/organizations/${w.orgA}/connections/meta/start`, user);
   expect(start.status, JSON.stringify(start.body)).toBe(200);
   const { code, state } = meta.authorize(start.body.authorizationUrl, scopes);
   const cb = await call('GET', `/v1/oauth/meta/callback?${new URLSearchParams({ code, state })}`);
@@ -164,7 +169,7 @@ describe('Fase 4 · Meta no configurado', () => {
     expect(st.body.meta.missing).toContain('META_APP_ID');
     const r = await call(
       'POST',
-      `/v1/clients/${w.clientA1}/connections/meta/start`,
+      `/v1/organizations/${w.orgA}/connections/meta/start`,
       w.users.adminA,
       undefined,
       bare,
@@ -206,9 +211,9 @@ describe('Fase 4 · inicio de sesión con Meta', () => {
 
   it('solo quien gestiona fuentes del cliente puede empezar', async () => {
     expect(
-      (await call('POST', `/v1/clients/${w.clientA1}/connections/meta/start`, w.users.adminB))
+      (await call('POST', `/v1/organizations/${w.orgA}/connections/meta/start`, w.users.adminB))
         .status,
-    ).toBe(404);
+    ).toBe(403);
   });
 
   it('state de un solo uso; el token se sella y no se guarda ninguna página todavía', async () => {
@@ -231,6 +236,10 @@ describe('Fase 4 · inicio de sesión con Meta', () => {
     const [c] = await seed<{ sealed: string; providerUserRef: string; provider: string }[]>`
       select sealed, provider_user_ref, provider from private.provider_credentials where id = ${credentialId}`;
     expect(c!.provider).toBe('meta');
+    // La autorización es de la organización, no de un cliente.
+    const [scope] = await seed<{ clientId: string | null }[]>`
+      select client_id from private.provider_credentials where id = ${credentialId}`;
+    expect(scope!.clientId).toBeNull();
     expect(c!.sealed).not.toMatch(/EAA/);
     expect(c!.providerUserRef).toMatch(/^[0-9a-f]{64}$/);
     expect(c!.providerUserRef).not.toContain(meta.user.id);
@@ -250,7 +259,7 @@ describe('Fase 4 · inicio de sesión con Meta', () => {
     const before = (await seed`select id from private.provider_credentials`).length;
     const start = await call(
       'POST',
-      `/v1/clients/${w.clientA1}/connections/meta/start`,
+      `/v1/organizations/${w.orgA}/connections/meta/start`,
       w.users.adminA,
     );
     const state = new URL(start.body.authorizationUrl).searchParams.get('state')!;
@@ -303,7 +312,7 @@ describe('Fase 4 · elección de páginas', () => {
   it('rechaza páginas ajenas o que no se pueden leer', async () => {
     for (const externalId of ['999', '102']) {
       const r = await call('POST', `/v1/meta/credentials/${credentialId}/connect`, w.users.adminA, {
-        items: [{ provider: 'facebook_page', externalId, locationId: null }],
+        items: [{ provider: 'facebook_page', externalId, clientId: w.clientA1, locationId: null }],
       });
       expect(r.status).toBe(400);
     }
@@ -327,8 +336,9 @@ describe('Fase 4 · elección de páginas', () => {
     });
     const r = await call('POST', `/v1/meta/credentials/${credentialId}/connect`, w.users.adminA, {
       items: [
-        { provider: 'facebook_page', externalId: '101', locationId: null },
-        { provider: 'instagram_business', externalId: IG, locationId: null },
+        // Cada página de la misma cuenta de Meta va a su propio cliente.
+        { provider: 'facebook_page', externalId: '101', clientId: w.clientA1, locationId: null },
+        { provider: 'instagram_business', externalId: IG, clientId: w.clientA2, locationId: null },
       ],
     });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
@@ -368,6 +378,55 @@ describe('Fase 4 · elección de páginas', () => {
     );
     const fb = list.body.items.find((x: { id: string }) => x.id === fbAccount);
     expect(fb.capabilities).toEqual(expect.arrayContaining(['publish_reply', 'webhooks']));
+    const [ig] = await seed<{ clientId: string }[]>`
+      select client_id from public.connected_accounts where id = ${igAccount}`;
+    expect(ig!.clientId).toBe(w.clientA2);
+  });
+
+  it('muestra a qué cliente está asignada cada página y lista la autorización para reutilizarla', async () => {
+    const r = await call('GET', `/v1/meta/credentials/${credentialId}/assets`, w.users.adminA);
+    const byId = Object.fromEntries(
+      r.body.items.map((a: { externalId: string; connectedTo: unknown }) => [
+        a.externalId,
+        a.connectedTo,
+      ]),
+    );
+    expect(byId['101']).toMatchObject({ clientId: w.clientA1 });
+    expect(byId[IG]).toMatchObject({ clientId: w.clientA2 });
+    expect(byId['102']).toBeNull();
+    expect(r.body.clients.map((c: { id: string }) => c.id)).toEqual(
+      expect.arrayContaining([w.clientA1, w.clientA2]),
+    );
+    const list = await call('GET', `/v1/organizations/${w.orgA}/meta/credentials`, w.users.adminA);
+    expect(list.body.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: credentialId, sources: 2 })]),
+    );
+  });
+
+  it('una página no puede estar a la vez en dos clientes ni ir a un cliente de otra organización', async () => {
+    const twice = await call(
+      'POST',
+      `/v1/meta/credentials/${credentialId}/connect`,
+      w.users.adminA,
+      {
+        items: [
+          { provider: 'facebook_page', externalId: '101', clientId: w.clientA2, locationId: null },
+        ],
+      },
+    );
+    expect(twice.status).toBe(409);
+    expect(twice.body.error.message).toContain('ya está conectada');
+    const foreign = await call(
+      'POST',
+      `/v1/meta/credentials/${credentialId}/connect`,
+      w.users.adminA,
+      {
+        items: [
+          { provider: 'facebook_page', externalId: '101', clientId: w.clientB1, locationId: null },
+        ],
+      },
+    );
+    expect(foreign.status).toBe(404);
   });
 });
 

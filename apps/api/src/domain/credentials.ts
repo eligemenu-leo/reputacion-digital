@@ -130,7 +130,8 @@ export async function saveCredential(
   box: SecretBox,
   input: {
     organizationId: string;
-    clientId: string;
+    /** null = autorización de la organización (Meta); cada fuente elige su cliente. */
+    clientId: string | null;
     provider: CredentialProvider;
     credentials: ProviderCredentials;
     userId: string;
@@ -159,7 +160,7 @@ export async function saveCredential(
 export interface CredentialRow {
   id: string;
   organizationId: string;
-  clientId: string;
+  clientId: string | null;
   provider: CredentialProvider;
   scopes: string[];
   providerUserRef: string | null;

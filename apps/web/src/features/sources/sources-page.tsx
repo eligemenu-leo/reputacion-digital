@@ -301,6 +301,7 @@ export function SourcesPage() {
           status={integrations.data?.meta}
           orgId={orgId}
           canConnect={integrations.isSuccess}
+          onPickPages={setSelectingMeta}
         />
         {PENDING_PROVIDERS.map((p) => (
           <Card key={p.name} className="flex items-start gap-3 p-4">

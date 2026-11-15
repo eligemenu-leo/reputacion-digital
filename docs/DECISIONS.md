@@ -114,6 +114,11 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Decisión:** el webhook solo verifica la firma, deduplica (`private.webhook_events`) y encola una sincronización de la fuente. El contenido nunca se toma del aviso.
 * **Motivo:** los avisos pueden llegar repetidos, desordenados o incompletos; reutilizar la sincronización mantiene una sola ruta de ingesta (deduplicación, ediciones, triaje, IA). Si un aviso llega con una sincronización en curso, se adelanta la siguiente a un minuto.
 
+## ADR-028 · La autorización de Meta es de la organización; cada página se asigna a su cliente
+* **Decisión:** el inicio de sesión con Facebook se hace una vez por organización (`provider_credentials.client_id = null` para `meta`). Después, cada página de Facebook o cuenta de Instagram se asigna a un cliente distinto; una página solo puede estar activa en un cliente a la vez. La misma autorización sirve para asignar más páginas más tarde sin volver a Facebook.
+* **Motivo:** una agencia gestiona con una sola cuenta de Meta las páginas de muchos clientes (petición de Leo, 15/11/2026).
+* **Consecuencia:** iniciar la conexión exige `connections.manage` en la organización; asignar a un cliente exige ese permiso en el cliente. Para pasar una página a otro cliente se desconecta y se vuelve a asignar (las interacciones ya importadas siguen en el cliente original). Google sigue con autorización por cliente; se puede aplicar el mismo modelo si hace falta.
+
 ## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
 * **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
 * **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.
