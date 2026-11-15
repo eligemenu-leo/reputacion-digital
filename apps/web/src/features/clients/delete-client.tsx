@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/field';
 import { useToast } from '@/components/ui/toast';
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const same = (a: string) => a.trim().toLocaleLowerCase('es');
 
 /** Zona de peligro: eliminar el cliente y todos sus datos (irreversible). */
@@ -35,7 +36,7 @@ export function DeleteClientCard({
     onSuccess: (r) => {
       toast(
         'success',
-        `Cliente «${clientName}» eliminado, con ${r.counts.interactions} opiniones y comentarios y ${r.counts.sources} fuentes.`,
+        `Cliente «${clientName}» eliminado, con ${plural(r.counts.interactions, 'opinión o comentario', 'opiniones y comentarios')} y ${plural(r.counts.sources, 'fuente', 'fuentes')}.`,
       );
       qc.removeQueries({ queryKey: ['client', clientId] });
       void qc.invalidateQueries();
