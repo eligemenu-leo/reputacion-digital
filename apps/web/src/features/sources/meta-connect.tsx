@@ -67,7 +67,7 @@ export function MetaCard({
         </p>
       </div>
       {canConnect && (
-        <Button size="sm" onClick={() => setOpen(true)}>
+        <Button size="sm" onClick={() => setOpen(true)} aria-label="Conectar Facebook e Instagram">
           Conectar
         </Button>
       )}
