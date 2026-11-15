@@ -215,6 +215,8 @@ describe('Fase 4 · inicio de sesión con Meta', () => {
     const { start, cb, state, code } = await authorize();
     const url = new URL(start.body.authorizationUrl);
     expect(url.searchParams.get('redirect_uri')).toBe('http://api.test/v1/oauth/meta/callback');
+    // Con webhooks configurados se pide también el permiso para suscribir la página.
+    expect(url.searchParams.get('scope')).toContain('pages_manage_metadata');
     const hash = createHash('sha256').update(state).digest('hex');
     const [row] = await seed<{ provider: string; codeVerifierSealed: string | null }[]>`
       select provider, code_verifier_sealed from private.oauth_states where state_hash = ${hash}`;

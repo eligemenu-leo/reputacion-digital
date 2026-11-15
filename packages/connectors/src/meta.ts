@@ -49,10 +49,16 @@ export const META_SCOPES = [
   'pages_read_engagement',
   'pages_read_user_content',
   'pages_manage_engagement',
-  'pages_manage_metadata',
   'instagram_basic',
   'instagram_manage_comments',
 ] as const;
+
+/** Solo hace falta para suscribir la página a los webhooks: se pide únicamente si están configurados. */
+export const META_WEBHOOK_SCOPE = 'pages_manage_metadata';
+
+/** Permisos mínimos según el entorno (mínimo privilegio). */
+export const metaScopes = (webhooks: boolean): string[] =>
+  webhooks ? [...META_SCOPES, META_WEBHOOK_SCOPE] : [...META_SCOPES];
 
 export const FACEBOOK_REQUIRED_SCOPES = [
   'pages_show_list',

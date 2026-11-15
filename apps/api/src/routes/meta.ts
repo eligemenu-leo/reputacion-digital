@@ -15,7 +15,8 @@ import {
   FACEBOOK_REPLY_SCOPE,
   FACEBOOK_REQUIRED_SCOPES,
   INSTAGRAM_REQUIRED_SCOPES,
-  META_SCOPES,
+  META_WEBHOOK_SCOPE,
+  metaScopes,
   metaWebhookChallenge,
   parseMetaWebhook,
   verifyMetaSignature,
@@ -148,7 +149,13 @@ export async function metaRoutes(app: FastifyInstance) {
         values (${stateHash}, 'meta', ${c!.organizationId}, ${clientId}, ${auth.userId}, null,
                 ${integrations.metaRedirectUri})`;
       return {
-        authorizationUrl: meta.graph().authorizationUrl(integrations.metaRedirectUri, state),
+        authorizationUrl: meta
+          .graph()
+          .authorizationUrl(
+            integrations.metaRedirectUri,
+            state,
+            metaScopes(Boolean(meta.webhookVerifyToken)),
+          ),
       };
     });
   });
@@ -291,7 +298,9 @@ export async function metaRoutes(app: FastifyInstance) {
     const already = new Set(connected.map((c) => `${c.provider}:${c.externalAccountId}`));
     return {
       clientId: cred.clientId,
-      missingScopes: META_SCOPES.filter((s) => !loaded.credentials.scopes.includes(s)),
+      missingScopes: metaScopes(Boolean(integrations.meta?.webhookVerifyToken)).filter(
+        (s) => !loaded.credentials.scopes.includes(s),
+      ),
       items: assetsFor(pages, loaded.credentials.scopes).map((a) => ({
         ...a,
         alreadyConnected: already.has(`${a.provider}:${a.externalId}`),
@@ -332,7 +341,7 @@ export async function metaRoutes(app: FastifyInstance) {
     // Avisos en tiempo real (si el webhook está configurado). Si falla, se sincroniza por sondeo.
     const webhooks = new Map<string, boolean>();
     for (const pid of pageIds) {
-      if (!meta.webhookVerifyToken) {
+      if (!meta.webhookVerifyToken || !loaded.credentials.scopes.includes(META_WEBHOOK_SCOPE)) {
         webhooks.set(pid, false);
         continue;
       }

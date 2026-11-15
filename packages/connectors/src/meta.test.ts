@@ -3,6 +3,7 @@ import {
   FacebookPageConnector,
   InstagramBusinessConnector,
   META_SCOPES,
+  metaScopes,
   MetaGraph,
   mapMetaError,
   metaWebhookChallenge,
@@ -40,6 +41,14 @@ async function login(s = setup(), scopes: readonly string[] = META_SCOPES) {
 }
 
 describe('Meta · inicio de sesión', () => {
+  it('solo pide pages_manage_metadata si hay webhooks (mínimo privilegio)', () => {
+    expect(metaScopes(false)).not.toContain('pages_manage_metadata');
+    expect(metaScopes(true)).toContain('pages_manage_metadata');
+    const { graph } = setup();
+    const u = new URL(graph.authorizationUrl(redirectUri, 's', metaScopes(false)));
+    expect(u.searchParams.get('scope')).not.toContain('pages_manage_metadata');
+  });
+
   it('construye el diálogo con los permisos, el state y la versión v26.0', () => {
     const { graph } = setup();
     const u = new URL(graph.authorizationUrl(redirectUri, 'abc'));

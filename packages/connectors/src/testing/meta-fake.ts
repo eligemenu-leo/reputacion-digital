@@ -82,10 +82,12 @@ export class FakeMetaApi {
   }
 
   /** Simula que el usuario acepta en el diálogo de Facebook (con los permisos indicados). */
-  authorize(authorizationUrl: string, scopes: readonly string[] = META_SCOPES) {
+  authorize(authorizationUrl: string, scopes?: readonly string[]) {
     const u = new URL(authorizationUrl);
+    // Por defecto el usuario acepta exactamente lo que se le pide.
+    scopes ??= u.searchParams.get('scope')?.split(',') ?? META_SCOPES;
     const code = `fb-code-${++this.seq}`;
-    this.codes.set(code, [...scopes]);
+    this.codes.set(code, [...scopes!]);
     return { code, state: u.searchParams.get('state')! };
   }
 

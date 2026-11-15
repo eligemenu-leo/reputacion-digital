@@ -10,7 +10,7 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createHash, randomBytes } from 'node:crypto';
-import { GOOGLE_SCOPE, META_SCOPES, type ExternalLocation } from '@rep/connectors';
+import { GOOGLE_SCOPE, metaScopes, type ExternalLocation } from '@rep/connectors';
 import { AppError, uuidSchema } from '@rep/shared';
 import { z } from 'zod';
 import { requireAuth } from '../app';
@@ -76,7 +76,7 @@ export async function googleRoutes(app: FastifyInstance) {
         webhookUrl: integrations.metaWebhookUrl,
         webhooks: Boolean(integrations.meta?.webhookVerifyToken),
         graphVersion: config.META_GRAPH_VERSION,
-        scopes: META_SCOPES,
+        scopes: metaScopes(Boolean(integrations.meta?.webhookVerifyToken)),
         missing: [
           ...(config.META_APP_ID ? [] : ['META_APP_ID', 'META_APP_SECRET']),
           ...(config.CREDENTIALS_ENCRYPTION_KEYS ? [] : ['CREDENTIALS_ENCRYPTION_KEYS']),
