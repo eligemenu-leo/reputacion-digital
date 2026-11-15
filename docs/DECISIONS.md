@@ -119,6 +119,17 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Motivo:** una agencia gestiona con una sola cuenta de Meta las páginas de muchos clientes (petición de Leo, 15/11/2026).
 * **Consecuencia:** iniciar la conexión exige `connections.manage` en la organización; asignar a un cliente exige ese permiso en el cliente. Para pasar una página a otro cliente se desconecta y se vuelve a asignar (las interacciones ya importadas siguen en el cliente original). Google sigue con autorización por cliente; se puede aplicar el mismo modelo si hace falta.
 
+## ADR-029 · Eliminar un cliente borra todos sus datos, sin romper la inmutabilidad del resto
+* **Contexto:** hace falta poder eliminar un cliente con sus opiniones, reseñas y comentarios. Pero el historial (versiones, aprobaciones, intentos, recibos y eventos) es append-only y varias claves son RESTRICT.
+* **Decisión:**
+  * `DELETE /v1/clients/:id` exige `clients.delete`, un permiso de organización que solo tiene `org_admin`, y MFA si está activada.
+  * Hay que escribir el nombre del cliente para confirmar. Se rechaza con 409 si hay publicaciones en cola o en curso.
+  * Primero se desconectan las fuentes y se liberan sus autorizaciones: revocación en Google y, en Meta, baja de las páginas que ya no se usan y borrado de su token de página.
+  * Después, `private.purge_client()` (solo service_role) marca la transacción con `app.purging_client`. Los triggers append-only y la auditoría por fila solo lo respetan para filas de ese cliente; `audit_logs` no se puede borrar nunca.
+  * El gasto de IA se conserva agregado por mes en `ai_spend_archive`, para que el presupuesto no «recupere» dinero ya gastado.
+  * Se deja una sola entrada `clients.purge` con recuentos y sin contenido.
+* **Consecuencia:** el borrado es irreversible y solo afecta a nuestra base de datos; no toca nada publicado en Google, Facebook o Instagram. Las entradas de auditoría anteriores se conservan.
+
 ## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
 * **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
 * **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.

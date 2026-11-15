@@ -76,13 +76,14 @@ afterAll(async () => {
 });
 
 const call = async (
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   url: string,
   userId?: string,
   body?: unknown,
+  aal: 'aal1' | 'aal2' = 'aal1',
 ) => {
   const headers: Record<string, string> = {};
-  if (userId) headers.authorization = `Bearer ${await token(userId)}`;
+  if (userId) headers.authorization = `Bearer ${await token(userId, { aal })}`;
   const res = await app.inject({
     method,
     url,
@@ -668,5 +669,96 @@ describe('Fase 2 · borradores, aprobación y publicación', () => {
     const [{ n } = { n: -1 }] = await seed<{ n: number }[]>`
       select count(*)::int as n from public.audit_logs where organization_id = ${w.orgA} and action = 'response.approved'`;
     expect(n).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('Borrado definitivo de un cliente', () => {
+  const del = (user: string, confirmName: string, aal: 'aal1' | 'aal2' = 'aal2') =>
+    call('DELETE', `/v1/clients/${w.clientA1}`, user, { confirmName }, aal);
+  const left = async (clientId: string) => {
+    const [r] = await seed<Record<string, number>[]>`
+      select
+        (select count(*) from public.clients where id = ${clientId})::int as clients,
+        (select count(*) from public.external_interactions where client_id = ${clientId})::int as interactions,
+        (select count(*) from public.interaction_versions where client_id = ${clientId})::int as versions,
+        (select count(*) from public.interaction_events where client_id = ${clientId})::int as events,
+        (select count(*) from public.response_drafts where client_id = ${clientId})::int as drafts,
+        (select count(*) from public.response_approvals where client_id = ${clientId})::int as approvals,
+        (select count(*) from public.publication_jobs where client_id = ${clientId})::int as jobs,
+        (select count(*) from public.publication_attempts where client_id = ${clientId})::int as attempts,
+        (select count(*) from public.publication_receipts where client_id = ${clientId})::int as receipts,
+        (select count(*) from public.ai_generations where client_id = ${clientId})::int as ai,
+        (select count(*) from public.connected_accounts where client_id = ${clientId})::int as sources,
+        (select count(*) from public.client_locations where client_id = ${clientId})::int as locations`;
+    return r!;
+  };
+  let before: Record<string, number>;
+  let started: Date;
+
+  it('solo un administrador con MFA, y escribiendo el nombre exacto', async () => {
+    before = await left(w.clientA1);
+    expect(before.interactions).toBeGreaterThan(0);
+    expect(before.approvals).toBeGreaterThan(0);
+    expect(before.receipts).toBeGreaterThan(0);
+    expect((await del(w.users.managerA, 'Restaurante Alfa')).status).toBe(403);
+    expect((await del(w.users.adminA, 'Restaurante Alfa', 'aal1')).status).toBe(403);
+    expect((await del(w.users.adminB, 'Restaurante Alfa')).status).toBe(404);
+    expect((await del(w.users.adminA, 'Restaurante Beta')).status).toBe(400);
+    expect(await left(w.clientA1)).toEqual(before);
+  });
+
+  it('no borra mientras haya una publicación en curso', async () => {
+    const [job] = await seed<{ id: string }[]>`
+      select id from public.publication_jobs where client_id = ${w.clientA1} and status in ('queued', 'running') limit 1`;
+    if (!job) {
+      await seed`update public.publication_jobs set status = 'queued'
+                  where id = (select id from public.publication_jobs where client_id = ${w.clientA1} and status = 'failed' limit 1)`;
+    }
+    const r = await del(w.users.adminA, 'Restaurante Alfa');
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect((await left(w.clientA1)).clients).toBe(1);
+    await seed`update public.publication_jobs set status = 'cancelled'
+                where client_id = ${w.clientA1} and status in ('queued', 'running')`;
+  });
+
+  it('borra el cliente y todo su historial; conserva el gasto de IA y deja una sola línea de auditoría', async () => {
+    const [gen] = await seed<{ id: string }[]>`
+      insert into public.ai_generations (organization_id, client_id, kind, status, provider, model, prompt_version,
+                                         input_hash, cost_usd, completed_at)
+      values (${w.orgA}, ${w.clientA1}, 'classification', 'succeeded', 'fake', 'm', 'v1', 'h', 0.25, now())
+      returning id`;
+    expect(gen).toBeTruthy();
+    const otherBefore = await left(w.clientA2);
+    started = new Date();
+    const r = await del(w.users.adminA, '  restaurante alfa ');
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.counts.interactions).toBe(before.interactions);
+    const after = await left(w.clientA1);
+    expect(
+      Object.values(after).every((n) => n === 0),
+      JSON.stringify(after),
+    ).toBe(true);
+    expect(await left(w.clientA2)).toEqual(otherBefore);
+    const [arch] = await seed<{ spent: string }[]>`
+      select spent_usd as spent from public.ai_spend_archive where organization_id = ${w.orgA}`;
+    expect(Number(arch!.spent)).toBeGreaterThanOrEqual(0.25);
+    const logs = await seed<{ action: string; changes: unknown }[]>`
+      select action, changes from public.audit_logs where client_id = ${w.clientA1} and created_at >= ${started}`;
+    // Queda la desconexión de las fuentes (solo cambios de estado) y una línea de purgado, sin contenido.
+    expect(logs.filter((l) => l.action.endsWith('.delete'))).toEqual([]);
+    expect(logs.filter((l) => l.action === 'clients.purge')).toHaveLength(1);
+    for (const l of logs.filter((x) => x.action === 'connected_accounts.update'))
+      expect(Object.keys(l.changes as object).sort()).toEqual(expect.arrayContaining(['status']));
+    expect(logs.find((l) => l.action === 'clients.purge')!.changes).toBeNull();
+    expect((await call('GET', `/v1/clients/${w.clientA1}`, w.users.adminA)).status).toBe(404);
+  });
+
+  it('la auditoría nunca se puede borrar, ni marcando la sesión como purgado', async () => {
+    await expect(
+      seed.begin(async (tx) => {
+        await tx`select set_config('app.purging_client', ${w.clientA1}, true)`;
+        await tx`delete from public.audit_logs where client_id = ${w.clientA1}`;
+      }),
+    ).rejects.toThrow(/append-only/);
   });
 });

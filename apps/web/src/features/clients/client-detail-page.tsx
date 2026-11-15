@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn';
 import { ClientFormSheet } from './client-form';
 import { LocationFormSheet } from './location-form';
 import { BrandSection } from './brand-section';
+import { DeleteClientCard } from './delete-client';
 
 const TABS = [
   { key: 'ficha', label: 'Ficha' },
@@ -34,7 +35,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export function ClientDetailPage() {
-  const { orgId } = useOrg();
+  const { orgId, can } = useOrg();
   const { clientId } = useParams<{ clientId: string }>();
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>(() =>
     typeof window !== 'undefined' && window.location.hash === '#marca' ? 'marca' : 'ficha',
@@ -193,6 +194,9 @@ export function ClientDetailPage() {
                 {c.businessContext || <span className="text-muted">Sin información todavía.</span>}
               </p>
             </Card>
+            {can('clients.delete') && (
+              <DeleteClientCard orgId={orgId} clientId={c.id} clientName={c.name} />
+            )}
           </div>
         )}
 

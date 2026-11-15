@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   'members.manage': 'organization',
   'roles.manage': 'organization',
   'clients.create': 'organization',
+  'clients.delete': 'organization',
   'audit.read': 'organization',
   'alerts.manage': 'organization',
   // Cliente

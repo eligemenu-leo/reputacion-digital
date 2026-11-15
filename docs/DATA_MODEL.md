@@ -93,7 +93,7 @@ Implementado en `private.has_client_permission_in(org, client, perm)` (SECURITY 
 2. `private.guard_publication_job` (al insertar un trabajo): la **última** decisión de la interacción debe ser una aprobación, sobre el **último** borrador, y `sha256(content)` debe coincidir con el hash aprobado (42501). Por eso editar el texto después de aprobar anula la aprobación sin posibilidad de saltársela.
 3. `publication_jobs_one_live`: como máximo un trabajo `queued/running/published` por interacción → no hay segunda publicación accidental.
 4. `private.freeze_publication_job`: el texto, el borrador, la aprobación y la clave idempotente no cambian; `published` es terminal.
-5. Borradores, decisiones, versiones, recibos e historial son append-only (`private.forbid_mutation`).
+5. Borradores, decisiones, versiones, recibos e historial son append-only (`private.forbid_mutation`). Única excepción: `private.purge_client()` al eliminar un cliente (ADR-029); `audit_logs` nunca. El gasto de IA de clientes eliminados queda en `ai_spend_archive` (organización, mes, gasto, llamadas).
 6. `authenticated` solo tiene `SELECT` (filtrado por RLS: `connections.read` o `interactions.read` sobre el cliente). Toda mutación pasa por la API tras comprobar permisos y por el worker.
 
 **Índices:** `(organization_id, state, original_created_at desc)` para la bandeja, `(client_id, original_created_at desc)`, `(assignee_id)` parcial para abiertas, GIN sobre `search`, `(interaction_id, id)` en eventos, `(status, updated_at)` en trabajos.

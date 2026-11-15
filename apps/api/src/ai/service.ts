@@ -117,11 +117,16 @@ export async function budgetStatus(tx: Tx, organizationId: string) {
            count(*) filter (where status <> 'blocked')::int as calls
       from public.ai_generations
      where organization_id = ${organizationId} and created_at >= date_trunc('month', now())`;
+  // Gasto de clientes ya eliminados: sigue contando para el presupuesto del mes.
+  const [arch] = await tx<{ spent: string; calls: number }[]>`
+    select coalesce(sum(spent_usd), 0) as spent, coalesce(sum(calls), 0)::int as calls
+      from public.ai_spend_archive
+     where organization_id = ${organizationId} and month = date_trunc('month', now())::date`;
   return {
     limitUsd: b ? Number(b.monthlyLimitUsd) : DEFAULT_BUDGET_USD,
     hardStop: b ? b.hardStop : true,
-    spentUsd: Number(s?.spent ?? 0),
-    calls: s?.calls ?? 0,
+    spentUsd: Number(s?.spent ?? 0) + Number(arch?.spent ?? 0),
+    calls: (s?.calls ?? 0) + (arch?.calls ?? 0),
   };
 }
 
