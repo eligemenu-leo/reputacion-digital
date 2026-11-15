@@ -170,9 +170,11 @@ export async function metaRoutes(app: FastifyInstance) {
       }),
       req.query,
     );
+    // Hasta saber la organización (por el state), la web resuelve /fuentes con la del usuario.
+    let orgPath = '';
     const back = (r: FastifyReply, params: Record<string, string>) =>
       r.redirect(
-        `${config.APP_URL.replace(/\/$/, '')}/fuentes?${new URLSearchParams(params)}`,
+        `${config.APP_URL.replace(/\/$/, '')}${orgPath}/fuentes?${new URLSearchParams(params)}`,
         303,
       );
     const failWith = (e: CallbackError) => back(reply, { meta_error: e });
@@ -192,6 +194,7 @@ export async function metaRoutes(app: FastifyInstance) {
       return s ?? null;
     });
     if (!st) return failWith('invalid_state');
+    orgPath = `/o/${st.organizationId}`;
     if (q.error || !q.code) {
       return failWith(
         q.error === 'access_denied' || q.error_reason === 'user_denied'

@@ -224,6 +224,8 @@ describe('Fase 4 · inicio de sesión con Meta', () => {
 
     expect(cb.status).toBe(303);
     const back = new URL(cb.location!);
+    // La web abre la pantalla de la organización correcta (sin perder ?meta=).
+    expect(back.pathname).toBe(`/o/${w.orgA}/fuentes`);
     credentialId = back.searchParams.get('meta')!;
     expect(credentialId).toMatch(/^[0-9a-f-]{36}$/);
     const [c] = await seed<{ sealed: string; providerUserRef: string; provider: string }[]>`

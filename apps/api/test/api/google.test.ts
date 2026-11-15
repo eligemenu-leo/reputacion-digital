@@ -211,7 +211,7 @@ describe('Fase 4 · OAuth de Google', () => {
 
     expect(cb.status).toBe(303);
     const back = new URL(cb.location!);
-    expect(back.origin + back.pathname).toBe('http://app.test/fuentes');
+    expect(back.origin + back.pathname).toBe(`http://app.test/o/${w.orgA}/fuentes`);
     credentialId = back.searchParams.get('google')!;
     expect(credentialId).toMatch(/^[0-9a-f-]{36}$/);
     expect(back.searchParams.get('client')).toBe(w.clientA1);
