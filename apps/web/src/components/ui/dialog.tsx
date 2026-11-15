@@ -26,6 +26,15 @@ export function Sheet({
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] data-[state=open]:animate-[fade-in_150ms_ease-out]" />
         <D.Content
+          // Escape cierra primero una lista desplegable abierta (combobox), no todo el panel.
+          onEscapeKeyDown={(e) => {
+            const t = e.target as HTMLElement | null;
+            if (
+              t?.getAttribute('role') === 'combobox' &&
+              t.getAttribute('aria-expanded') === 'true'
+            )
+              e.preventDefault();
+          }}
           className={cn(
             'fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface shadow-2xl focus:outline-none data-[state=open]:animate-[slide-in_200ms_cubic-bezier(.2,.8,.2,1)]',
             wide ? 'sm:max-w-2xl' : 'sm:max-w-lg',

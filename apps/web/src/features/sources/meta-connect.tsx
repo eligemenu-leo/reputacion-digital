@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useId, useState, type InputHTMLAttributes } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Lock, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Lock, Search, TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Badge, Card, ErrorState, Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
-import { Field, Select } from '@/components/ui/field';
+import { Field, Input, Select } from '@/components/ui/field';
 import { Sheet } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { CopyUri, type IntegrationsStatus } from './google-connect';
@@ -159,6 +159,109 @@ function LocationSelect({
   );
 }
 
+/** Minúsculas y sin tildes, para que «llugarin» encuentre «Llugarín». */
+export function normalize(s: string) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+export function matches(name: string, query: string) {
+  const q = normalize(query);
+  return !q || normalize(name).includes(q);
+}
+
+/** Selector de cliente en el que se puede escribir para filtrar. */
+function ClientCombobox({
+  clients,
+  value,
+  onChange,
+  ...field
+}: {
+  clients: { id: string; name: string }[];
+  value: string;
+  onChange: (id: string) => void;
+} & Pick<InputHTMLAttributes<HTMLInputElement>, 'id' | 'aria-describedby' | 'aria-invalid'>) {
+  const listId = useId();
+  const selected = clients.find((c) => c.id === value);
+  const [query, setQuery] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const open = query !== null;
+  const options = clients.filter((c) => matches(c.name, query ?? ''));
+  const choose = (id: string) => {
+    onChange(id);
+    setQuery(null);
+  };
+  return (
+    <div className="relative">
+      <Input
+        {...field}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && options[active] ? `${listId}-${active}` : undefined}
+        autoComplete="off"
+        placeholder="Escribe para buscar un cliente"
+        value={open ? query : (selected?.name ?? '')}
+        onFocus={() => {
+          setQuery('');
+          setActive(0);
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActive(0);
+        }}
+        onBlur={() => setQuery(null)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (!open) setQuery('');
+            setActive((i) => Math.min(i + 1, options.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive((i) => Math.max(i - 1, 0));
+          } else if (e.key === 'Enter' && open) {
+            e.preventDefault();
+            const o = options[active];
+            if (o) choose(o.id);
+          } else if (e.key === 'Escape' && open) {
+            e.stopPropagation();
+            setQuery(null);
+          }
+        }}
+      />
+      {open && (
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border bg-surface py-1 text-sm shadow-lg"
+        >
+          {options.length === 0 ? (
+            <li className="px-3 py-2 text-muted">Ningún cliente coincide</li>
+          ) : (
+            options.map((c, i) => (
+              <li
+                key={c.id}
+                id={`${listId}-${i}`}
+                role="option"
+                aria-selected={c.id === value}
+                className={`cursor-pointer px-3 py-2 ${i === active ? 'bg-accent/10' : ''} ${c.id === value ? 'font-medium' : ''}`}
+                onMouseEnter={() => setActive(i)}
+                // mousedown para elegir antes de que el campo pierda el foco
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  choose(c.id);
+                }}
+              >
+                {c.name}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function SelectMetaAssetsSheet({
   credentialId,
   onClose,
@@ -170,6 +273,7 @@ export function SelectMetaAssetsSheet({
 }) {
   const toast = useToast();
   const [picked, setPicked] = useState<Record<string, Pick_>>({});
+  const [search, setSearch] = useState('');
   const q = useQuery({
     queryKey: ['meta-assets', credentialId],
     queryFn: () =>
@@ -269,8 +373,31 @@ export function SelectMetaAssetsSheet({
               acciones no estarán disponibles; puedes volver a autorizar para concederlos.
             </p>
           )}
+          {q.data!.items.length > 1 && (
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+                aria-hidden
+              />
+              <Input
+                type="search"
+                aria-label="Buscar páginas"
+                placeholder="Buscar página o cuenta de Instagram"
+                className="pl-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          )}
+          {search && !q.data!.items.some((a) => matches(a.displayName, search)) && (
+            <p className="text-sm text-muted">Ninguna página coincide con «{search}».</p>
+          )}
           {groups.map((g) => {
-            const items = q.data!.items.filter((a) => a.provider === g.provider);
+            // Las ya marcadas se mantienen visibles aunque no coincidan, para no perderlas de vista.
+            const items = q.data!.items.filter(
+              (a) =>
+                a.provider === g.provider && (matches(a.displayName, search) || keyOf(a) in picked),
+            );
             if (!items.length) return null;
             return (
               <fieldset key={g.provider} className="space-y-2">
@@ -323,20 +450,12 @@ export function SelectMetaAssetsSheet({
                         <div className="mt-3 grid gap-3 pl-7 sm:grid-cols-2">
                           <Field label="Cliente" required>
                             {(f) => (
-                              <Select
+                              <ClientCombobox
                                 {...f}
+                                clients={q.data!.clients}
                                 value={sel.clientId}
-                                onChange={(e) =>
-                                  set(k, { clientId: e.target.value, locationId: null })
-                                }
-                              >
-                                <option value="">Elige un cliente</option>
-                                {q.data!.clients.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}
-                                  </option>
-                                ))}
-                              </Select>
+                                onChange={(clientId) => set(k, { clientId, locationId: null })}
+                              />
                             )}
                           </Field>
                           {sel.clientId && (
