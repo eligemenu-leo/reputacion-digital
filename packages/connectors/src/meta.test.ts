@@ -65,10 +65,13 @@ describe('Meta · inicio de sesión', () => {
     expect(user.scopes).toEqual([...META_SCOPES]);
     expect(user.meta?.userId).toBe(api.user.id);
     expect(user.expiresAt!.getTime()).toBeGreaterThan(Date.now() + 50 * 86400_000);
-    // Toda llamada con token lleva appsecret_proof y el token nunca va en la URL.
+    // Toda llamada con token lleva appsecret_proof y el token nunca va en la URL, salvo
+    // input_token de /debug_token (la API solo lo admite así; la URL no se registra).
     for (const c of api.calls.filter((x) => x.auth)) {
       expect(c.url).toContain('appsecret_proof=');
-      expect(c.url).not.toMatch(/EAA/);
+      const u = new URL(c.url);
+      u.searchParams.delete('input_token');
+      expect(u.toString()).not.toMatch(/EAA/);
     }
   });
 
@@ -94,6 +97,27 @@ describe('Meta · inicio de sesión', () => {
         type: 'instagram_business',
       },
     ]);
+  });
+
+  it('incluye las páginas de un porfolio empresarial que /me/accounts no devuelve', async () => {
+    const api = new FakeMetaApi();
+    api.businessManaged = true;
+    const { pages, fb, user } = await login(setup(api));
+    expect(pages.map((p) => p.id)).toEqual(['101', '102']);
+    expect(pages[0]!.tasks).toBeNull();
+    expect(pages[0]!.instagram?.id).toBe('178414000001');
+    expect(pages[0]!.accessToken).toBeTruthy();
+    // El token de aplicación nunca viaja en la URL.
+    const dbg = api.calls.find((c) => c.url.includes('/debug_token'))!;
+    expect(dbg.url).not.toContain(api.appSecret);
+    const acc = await fb.listAccounts(user);
+    expect(acc.ok && acc.value.map((a) => a.externalId)).toEqual(['101', '102']);
+  });
+
+  it('sin porfolio empresarial no duplica las páginas de /me/accounts', async () => {
+    const { pages } = await login();
+    expect(pages.map((p) => p.id)).toEqual(['101', '102']);
+    expect(pages[0]!.tasks).toContain('MODERATE');
   });
 
   it('sin pages_manage_engagement no se concede publish_reply en Facebook', async () => {

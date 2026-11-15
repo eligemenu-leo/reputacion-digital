@@ -7,7 +7,8 @@
  *  - Diálogo:        https://www.facebook.com/v26.0/dialog/oauth?client_id&redirect_uri&state&scope&response_type=code
  *  - Canje:          GET /oauth/access_token?client_id&redirect_uri&client_secret&code
  *  - Token largo:    GET /oauth/access_token?grant_type=fb_exchange_token&… (≈60 días)
- *  - Páginas:        GET /me/accounts → token de página (sin caducidad fija) + tasks + IG vinculada
+ *  - Páginas:        GET /me/accounts → token de página (sin caducidad fija) + tasks + IG vinculada;
+ *                    las de un porfolio empresarial: debug_token (granular_scopes) + GET /{page-id}
  *  - Permisos:       GET /me/permissions · revocar: DELETE /me/permissions
  *  - FB comentarios: GET /{post-id}/comments (filter=toplevel) · responder POST /{comment-id}/comments
  *  - IG comentarios: GET /{media-id}/comments (máx. 50) · responder POST /{comment-id}/replies
@@ -99,7 +100,11 @@ export interface MetaPage {
   id: string;
   name: string;
   accessToken: string;
-  tasks: string[];
+  /**
+   * Tareas del usuario en la página. null = desconocidas: la página llega por un
+   * porfolio empresarial (Business Manager) y Meta no las expone por esa vía.
+   */
+  tasks: string[] | null;
   instagram?: { id: string; username?: string };
 }
 
@@ -241,7 +246,53 @@ export class MetaGraph {
       after = r.value.paging?.next ? r.value.paging.cursors?.after : undefined;
       if (!after) break;
     }
+    // Las páginas gestionadas desde un porfolio empresarial no salen en /me/accounts:
+    // se toman de las páginas que el usuario eligió al autorizar (granular_scopes).
+    const extra = await this.grantedPageIds(userToken);
+    if (!extra.ok) return out.length ? ok(out) : fail(extra.error);
+    for (const id of extra.value) {
+      if (out.some((p) => p.id === id)) continue;
+      const r = await this.call<{
+        id: string;
+        name?: string;
+        access_token?: string;
+        instagram_business_account?: { id: string; username?: string };
+      }>('GET', `/${id}`, {
+        token: userToken,
+        query: { fields: 'id,name,access_token,instagram_business_account{id,username}' },
+      });
+      if (!r.ok) {
+        if (r.error.kind === 'credentials_expired') return fail(r.error);
+        continue; // sin acceso a esa página: no se ofrece
+      }
+      if (!r.value.access_token) continue;
+      out.push({
+        id: r.value.id,
+        name: r.value.name ?? r.value.id,
+        accessToken: r.value.access_token,
+        tasks: null,
+        instagram: r.value.instagram_business_account,
+      });
+    }
     return ok(out);
+  }
+
+  /** Ids de las páginas concedidas en el diálogo (debug_token → granular_scopes). */
+  async grantedPageIds(userToken: string): Promise<Result<string[]>> {
+    const r = await this.call<{
+      data?: { granular_scopes?: { scope: string; target_ids?: string[] }[] };
+    }>('GET', '/debug_token', {
+      // Token de aplicación en la cabecera; input_token es el parámetro que exige la API.
+      token: `${this.opts.appId}|${this.opts.appSecret}`,
+      query: { input_token: userToken },
+    });
+    if (!r.ok) return fail(r.error);
+    const ids = new Set<string>();
+    for (const g of r.value.data?.granular_scopes ?? []) {
+      if (g.scope !== 'pages_show_list' && g.scope !== 'pages_read_engagement') continue;
+      for (const id of g.target_ids ?? []) if (/^\d{1,40}$/.test(id)) ids.add(id);
+    }
+    return ok([...ids].slice(0, 200));
   }
 
   /** Revoca la autorización completa de la app para este usuario de Facebook. */

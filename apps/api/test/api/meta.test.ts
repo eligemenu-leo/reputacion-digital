@@ -318,6 +318,28 @@ describe('Fase 4 · elección de páginas', () => {
     }
   });
 
+  it('ofrece las páginas de un porfolio empresarial aunque /me/accounts venga vacío', async () => {
+    meta.businessManaged = true;
+    try {
+      const r = await call('GET', `/v1/meta/credentials/${credentialId}/assets`, w.users.adminA);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      const ids = r.body.items.map((a: { provider: string; externalId: string }) => [
+        a.provider,
+        a.externalId,
+      ]);
+      expect(ids).toEqual([
+        ['facebook_page', '101'],
+        ['instagram_business', IG],
+        ['facebook_page', '102'],
+      ]);
+      // Meta no expone el rol por esta vía: no se bloquea; la API lo dirá al leer o publicar.
+      expect(r.body.items.every((a: { canRead: boolean }) => a.canRead)).toBe(true);
+      expect(r.text).not.toMatch(/EAA/);
+    } finally {
+      meta.businessManaged = false;
+    }
+  });
+
   it('conecta Facebook e Instagram, suscribe la página y sincroniza', async () => {
     const post = meta.page('101')!.posts[0]!;
     const a = meta.addComment(post, { text: '¿Tenéis menú sin gluten?', fromName: 'Ana Ficticia' });

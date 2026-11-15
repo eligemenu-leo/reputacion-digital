@@ -86,9 +86,14 @@ export function assetsFor(pages: MetaPage[], scopes: string[]): MetaAsset[] {
   const has = (list: string[]) => list.every((s) => scopes.includes(s));
   const out: MetaAsset[] = [];
   for (const p of pages) {
-    const roleOk = p.tasks.some((t) => READ_TASKS.includes(t));
+    // Tareas desconocidas (página de un porfolio empresarial): Meta ya filtró el acceso al dar
+    // el token de página; si el rol no basta, la API lo dirá al leer o publicar.
+    const roleOk = p.tasks === null || p.tasks.some((t) => READ_TASKS.includes(t));
     const fbRead = roleOk && has(FACEBOOK_REQUIRED_SCOPES);
-    const fbReply = fbRead && scopes.includes(FACEBOOK_REPLY_SCOPE) && p.tasks.includes('MODERATE');
+    const fbReply =
+      fbRead &&
+      scopes.includes(FACEBOOK_REPLY_SCOPE) &&
+      (p.tasks === null || p.tasks.includes('MODERATE'));
     out.push({
       provider: 'facebook_page',
       externalId: p.id,

@@ -112,7 +112,7 @@ export function providerUserRef(secret: string, provider: string, id: string) {
 export interface StoredPage {
   token: string;
   name: string;
-  tasks: string[];
+  tasks: string[] | null;
   instagramId?: string;
 }
 

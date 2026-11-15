@@ -48,6 +48,11 @@ export class FakeMetaApi {
   failures = new Map<string, Failure>();
   /** La siguiente respuesta publicada se guarda pero la conexión se corta. */
   dropAfterWrite = false;
+  /**
+   * Simula páginas gestionadas desde un porfolio empresarial: /me/accounts no las
+   * devuelve y solo aparecen en debug_token (granular_scopes) y en GET /{page-id}.
+   */
+  businessManaged = false;
   private seq = 0;
 
   constructor(
@@ -139,6 +144,7 @@ export class FakeMetaApi {
 
     // A partir de aquí, toda llamada exige token válido y appsecret_proof correcto.
     const token = auth?.replace(/^Bearer /, '') ?? q.get('access_token') ?? '';
+    if (path === '/debug_token') return this.debugToken(token, q);
     const t = this.tokens.get(token);
     if (!t) return err(400, 190, 'Error validating access token: Session has expired.');
     const proof = createHmac('sha256', this.appSecret).update(token).digest('hex');
@@ -157,7 +163,7 @@ export class FakeMetaApi {
     if (path === '/me/accounts') {
       if (!t.scopes.includes('pages_show_list')) return err(403, 200, 'Requires pages_show_list');
       return json({
-        data: this.pages.map((p) => ({
+        data: (this.businessManaged ? [] : this.pages).map((p) => ({
           id: p.id,
           name: p.name,
           access_token: p.token,
@@ -223,6 +229,22 @@ export class FakeMetaApi {
         paging: { cursors: { after: 'end' } },
       });
     }
+    m = /^\/(\d+)$/.exec(path);
+    if (m && this.page(m[1]!) && method === 'GET') {
+      const p = this.page(m[1]!)!;
+      if (t.kind !== 'user') return err(400, 100, 'Unsupported get request', 33);
+      const fields = (q.get('fields') ?? '').split(',');
+      if (fields.includes('tasks'))
+        return err(400, 100, '(#100) Tried accessing nonexisting field (tasks)');
+      return json({
+        id: p.id,
+        name: p.name,
+        access_token: p.token,
+        ...(p.instagram && t.scopes.includes('instagram_basic')
+          ? { instagram_business_account: { id: p.instagram.id, username: p.instagram.username } }
+          : {}),
+      });
+    }
     m = /^\/([\d_]+)$/.exec(path);
     if (m) {
       const found = this.findComment(m[1]!);
@@ -235,6 +257,31 @@ export class FakeMetaApi {
     }
     return err(404, 803, `ruta no simulada: ${key}`);
   };
+
+  private debugToken(appToken: string, q: URLSearchParams): Response {
+    if (appToken !== `${this.appId}|${this.appSecret}`) return err(400, 190, 'Invalid app token');
+    const proof = createHmac('sha256', this.appSecret).update(appToken).digest('hex');
+    if (q.get('appsecret_proof') !== proof) return err(400, 100, 'Invalid appsecret_proof');
+    const t = this.tokens.get(q.get('input_token') ?? '');
+    if (!t || t.kind !== 'user') return json({ data: { is_valid: false } });
+    const ids = this.pages.map((p) => p.id);
+    return json({
+      data: {
+        is_valid: true,
+        app_id: this.appId,
+        user_id: this.user.id,
+        scopes: t.scopes,
+        granular_scopes: t.scopes
+          .filter((s) => s.startsWith('pages_') || s.startsWith('instagram_'))
+          .map((scope) => ({
+            scope,
+            target_ids: scope.startsWith('instagram_')
+              ? this.pages.flatMap((p) => (p.instagram ? [p.instagram.id] : []))
+              : ids,
+          })),
+      },
+    });
+  }
 
   private userScopes() {
     for (const v of this.tokens.values()) if (v.kind === 'user') return v.scopes;
