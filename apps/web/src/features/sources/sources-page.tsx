@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Lock, Plug, Plus, RefreshCw, Unplug } from 'lucide-react';
@@ -69,7 +69,12 @@ export function SourcesPage() {
     queryFn: () => api<IntegrationsStatus>('/integrations'),
   });
   // Vuelta desde Google o Meta: ?google=<autorización>, ?meta=<autorización> o ?…_error=<código>.
+  // Evita el aviso doble (StrictMode ejecuta el efecto dos veces en desarrollo).
+  const handled = useRef('');
   useEffect(() => {
+    const key = params.toString();
+    if (!key || handled.current === key) return;
+    handled.current = key;
     const ok = params.get('google');
     const err = params.get('google_error');
     const metaOk = params.get('meta');
