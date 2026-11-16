@@ -37,5 +37,12 @@ jobs:
         run: pnpm test
       - run: pnpm --filter @rep/web build
       - run: pnpm --filter @rep/api build
+      - name: Imagen Docker de API y worker (arranca y resuelve dependencias)
+        run: |
+          docker build -q -t reputacion-api .
+          for entry in server worker; do
+            out="$(docker run --rm reputacion-api node dist/$entry.js 2>&1 || true)"
+            if echo "$out" | grep -q ERR_MODULE_NOT_FOUND; then echo "$out" | head -5; exit 1; fi
+          done
       - name: Auditoría de dependencias de producción
         run: pnpm audit --prod --audit-level high

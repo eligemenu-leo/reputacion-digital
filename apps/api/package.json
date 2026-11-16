@@ -21,6 +21,7 @@
     "@rep/connectors": "workspace:*",
     "@rep/shared": "workspace:*",
     "fastify": "^5.2.0",
+    "jose": "^5.9.6",
     "pg-boss": "^12.38.2",
     "postgres": "^3.4.5",
     "zod": "^4.6.6"
@@ -28,7 +29,6 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "esbuild": "0.25.12",
-    "jose": "^5.9.6",
     "tsx": "^4.19.2",
     "vitest": "^3.2.0"
   }

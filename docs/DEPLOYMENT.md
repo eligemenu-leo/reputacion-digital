@@ -56,9 +56,62 @@ Las dependencias de terceros se resuelven desde `node_modules` (instalar con `pn
 * `JOBS_ENABLED` (por defecto `true`): la API envía avisos a pg-boss. Si es `false`, las filas quedan en cola y el worker las recoge en su barrido.
 * pg-boss crea y migra su esquema `pgboss` al arrancar; el usuario de `DATABASE_URL` necesita permiso para ello.
 
-El `Dockerfile` se preparará cuando se elija hosting (pendiente de aprobación de costes).
+Imagen: `Dockerfile` en la raíz (Node 22; API por defecto, worker con `node dist/worker.js`). Construcción local: `docker build -t reputacion-api .`.
+
+## Producción ligera elegida (2026-11-16): Supabase gratis + Fly.io + Cloudflare
+
+Leo eligió empezar sin coste fijo: **0–5 $/mes** más el consumo de OpenAI. Cuando haya clientes de pago, se pasa Supabase a Pro con un cambio de plan, sin migrar nada.
+
+| Pieza | Servicio | Región | Coste |
+|---|---|---|---|
+| Base de datos + Auth | Supabase Free (2.º proyecto gratis de la cuenta; `eligemenu` no se toca) | UE (Fráncfort) | 0 $ |
+| API (512 MB) + worker (256 MB) | Fly.io, `fly.toml` (procesos `app` y `worker`) | `fra` | ≈ 5 $; Fly no cobra facturas personales < 5 $ |
+| Web | Cloudflare Pages (`apps/web/dist`, `_redirects` y `_headers` en `apps/web/public`) | CDN | 0 $ |
+| Copias | GitHub Actions `backup.yml` → Cloudflare R2 (10 GB gratis), cifradas con age | UE | 0 $ |
+
+Límites del plan gratuito y cómo se cubren:
+* **Pausa tras 7 días sin actividad:** el worker sincroniza cada hora, así que el proyecto nunca está inactivo.
+* **Sin copias recuperables:** se hace una copia diaria propia y cifrada (ver abajo).
+* **500 MB:** de sobra para decenas de clientes.
+* **Correo de Auth limitado:** para invitar al equipo, configurar un SMTP propio (el del dominio eligemenu.es).
+
+### Pasos (cada cuenta se crea solo con el OK de Leo)
+
+1. **Supabase:** crear el proyecto gratuito en la UE.
+   * Auth → URL Configuration: Site URL = la web; Redirect URLs = `<web>/auth/callback` y `<web>/nueva-contrasena`.
+   * Registro público desactivado, MFA TOTP activado y SMTP propio.
+   * Migraciones: `npx supabase link --project-ref <ref>` y después `npx supabase db push`.
+2. **Fly.io:**
+   * `fly launch --no-deploy --copy-config --name <app>` (región `fra`).
+   * Secretos: `fly secrets set` con `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTHOR_REF_PEPPER`, `CREDENTIALS_ENCRYPTION_KEYS`, `OPENAI_API_KEY`, `META_APP_ID`, `META_APP_SECRET`, `APP_URL`, `CORS_ORIGINS`, `API_PUBLIC_URL` y `ENFORCE_ADMIN_MFA=true`.
+   * `DATABASE_URL` es la conexión directa de Supabase (IPv6, que Fly admite) o el pooler en modo sesión (puerto 5432). El pooler en modo transacción no sirve, porque lo impiden pg-boss y `set local`.
+   * `fly deploy`.
+3. **Cloudflare Pages:**
+   * Conectar el repositorio, rama `main`.
+   * Build: `pnpm install --frozen-lockfile && pnpm --filter @rep/web build`. Salida: `apps/web/dist`.
+   * Variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` y `VITE_API_URL`.
+4. **Meta:** en la app, añadir el dominio y la URI de redirección `https://<api>/v1/oauth/meta/callback`. Con `META_WEBHOOK_VERIFY_TOKEN`, el webhook es `https://<api>/v1/webhooks/meta`.
+5. **Primer superadministrador:** `bootstrap:superadmin` con las variables de producción, desde el Mac de Leo.
+6. **Datos:** se empieza desde cero y se vuelven a conectar las páginas. El histórico de 12 meses se carga solo. La base local del Mac no se migra.
 
 ## Copias de seguridad y recuperación
+
+**Copia diaria propia (plan gratuito)**
+* `.github/workflows/backup.yml` se ejecuta a las 03:30 (hora de Madrid) y a mano.
+* `supabase db dump` (roles, esquema y datos) se empaqueta y se cifra con **age** en el runner, antes de salir de él.
+* Después se sube a R2 como `db/<fecha>.tar.gz.age`. El repositorio es público: el volcado nunca se guarda como artefacto ni se imprime en el log.
+* Configuración en GitHub:
+  * Secrets: `SUPABASE_DB_URL` (pooler en modo sesión: los runners no tienen IPv6), `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY`.
+  * Variables: `BACKUP_ENABLED=true`, `BACKUP_AGE_RECIPIENT` (clave pública age) y `R2_BUCKET`.
+* La **clave privada de age** se guarda fuera de GitHub, en el gestor de contraseñas de Leo.
+* Retención: una regla de ciclo de vida de R2 que borre lo de más de 30 días.
+* Restaurar:
+  1. `age -d -i clave.txt copia.tar.gz.age | tar -xz`
+  2. En un proyecto vacío: `psql -f roles.sql`, después `psql -f schema.sql` y por último `psql -f data.sql`, con `session_replication_role = replica` para los datos.
+  3. `supabase db lint` y la suite RLS.
+  4. Cambiar `DATABASE_URL`.
+
+**Con Supabase Pro**
 
 * Supabase: backups diarios gestionados + **PITR** en producción.
 * Procedimiento de restauración (probar trimestralmente en staging): restaurar a un proyecto nuevo con PITR → verificar `supabase db lint` + suite RLS contra la copia → cambiar `DATABASE_URL` de API/worker.

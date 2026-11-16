@@ -1,0 +1,54 @@
+name: Copia de seguridad diaria
+
+# Copia diaria de la base de datos de producción (Supabase), cifrada con age
+# ANTES de salir del runner y subida a Cloudflare R2. El repositorio es público:
+# el volcado nunca se guarda como artefacto ni se imprime en el log.
+# Configuración y restauración: docs/DEPLOY.md («Copias de seguridad»).
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # 03:30 en Madrid (invierno)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Instalar age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      - name: Volcar, cifrar y subir
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          stamp="$(date -u +%Y-%m-%dT%H%MZ)"
+          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "$work/roles.sql" >/dev/null
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$work/schema.sql" >/dev/null
+          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only --use-copy -f "$work/data.sql" >/dev/null
+          tar -C "$work" -czf - roles.sql schema.sql data.sql | age -r "$AGE_RECIPIENT" -o "$work/backup.tar.gz.age"
+          size="$(stat -c %s "$work/backup.tar.gz.age")"
+          if [ "$size" -lt 1024 ]; then echo "Copia demasiado pequeña ($size bytes)"; exit 1; fi
+          aws s3 cp "$work/backup.tar.gz.age" "s3://$R2_BUCKET/db/$stamp.tar.gz.age" \
+            --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          echo "Copia subida: db/$stamp.tar.gz.age ($size bytes, cifrada)"
