@@ -342,6 +342,13 @@ async function setAiStatus(
   );
 }
 
+export const NO_TEXT = 'Sin texto que analizar (vacío, emojis o sticker)';
+
+/** Hay al menos dos letras o cifras (en cualquier alfabeto). */
+export function hasAnalyzableText(content: string | null | undefined): boolean {
+  return (content?.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 2;
+}
+
 export async function runClassify(deps: AiDeps, interactionId: string) {
   const { sql, ai } = deps;
   const claimed = await withService(sql, null, async (tx) => {
@@ -362,6 +369,11 @@ export async function runClassify(deps: AiDeps, interactionId: string) {
   });
   if (!claimed) return { status: 'skipped' as const };
   const { row } = claimed;
+  // Emojis, stickers o comentarios vacíos: no hay nada que analizar y la IA no se llama.
+  if (!hasAnalyzableText(row.content) && row.rating == null) {
+    await setAiStatus(sql, row.id, 'skipped', NO_TEXT);
+    return { status: 'skipped' as const };
+  }
   if (!ai) {
     await setAiStatus(sql, row.id, 'skipped', 'IA no configurada');
     return { status: 'skipped' as const };

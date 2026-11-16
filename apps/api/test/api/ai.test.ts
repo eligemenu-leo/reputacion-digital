@@ -18,6 +18,8 @@ import { FakeAiProvider, fakeDraft } from '../../src/ai/fake-provider';
 import { AiProviderError, type AiProvider } from '../../src/ai/provider';
 import { DEFAULT_PRICES } from '../../src/ai/pricing';
 import {
+  NO_TEXT,
+  hasAnalyzableText,
   runClassify,
   sweepClassifications,
   type AiDeps,
@@ -281,6 +283,25 @@ describe('Fase 3 · clasificación automática', () => {
     expect(queue.take(QUEUES.classify)).toHaveLength(0);
     const d = await call('GET', `/v1/interactions/${id}`, w.users.managerA);
     expect(d.body.interaction.aiError).toContain('503');
+  });
+
+  it('comentarios vacíos o solo con emojis no se envían a la IA ni cuentan como error', async () => {
+    const id = await byText('Correcto sin más');
+    const [orig] = await seed<
+      { content: string }[]
+    >`select content from public.external_interactions where id = ${id}`;
+    for (const content of ['👍🔥', '', '!!', null]) {
+      await seed`update public.external_interactions set content = ${content}, rating = null, ai_status = 'pending' where id = ${id}`;
+      const before = fake.calls.length;
+      expect((await runClassify(aiDeps, id)).status).toBe('skipped');
+      expect(fake.calls.length).toBe(before);
+      const [r] = await seed<{ aiStatus: string; aiError: string }[]>`
+        select ai_status, ai_error from public.external_interactions where id = ${id}`;
+      expect(r).toEqual({ aiStatus: 'skipped', aiError: NO_TEXT });
+    }
+    expect(hasAnalyzableText('ok 👍')).toBe(true);
+    expect(hasAnalyzableText('Очень вкусно')).toBe(true);
+    await seed`update public.external_interactions set content = ${orig!.content}, ai_status = 'done' where id = ${id}`;
   });
 
   it('el barrido recupera análisis pendientes cuyo aviso se perdió', async () => {
