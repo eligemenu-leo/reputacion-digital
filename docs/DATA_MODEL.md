@@ -162,3 +162,7 @@ report_snapshots (id, organization_id, client_id, period, metrics jsonb, ai_summ
 | Tokens OAuth | hasta desconexión/revocación (borrado inmediato) | necesidad |
 
 Un job de retención (F5) aplicará estos plazos; el borrado de una organización elimina en cascada sus datos.
+
+### Histórico y recomendaciones (`20261119000100_history_recommendations.sql`)
+* `provider_sync_runs.trigger` admite `history` (carga del histórico pedida a mano).
+* `external_interactions.recommendation` (`positive` · `negative`): recomendaciones de Facebook, que no tienen nota numérica.

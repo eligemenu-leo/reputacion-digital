@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Lock, Plug, Plus, RefreshCw, Unplug } from 'lucide-react';
+import { FlaskConical, Lock, Plug, Plus, RefreshCw, Unplug, History } from 'lucide-react';
 import type { ConnectionStatus } from '@rep/shared';
 import { api } from '@/lib/api';
 import { useOrg } from '@/lib/use-org';
@@ -107,9 +107,18 @@ export function SourcesPage() {
     void qc.invalidateQueries({ queryKey: ['inbox', orgId] });
   };
   const sync = useMutation({
-    mutationFn: (id: string) => api(`/connections/${id}/sync`, { method: 'POST' }),
-    onSuccess: () => {
-      toast('success', 'Sincronización en cola');
+    mutationFn: (v: { id: string; history?: boolean }) =>
+      api(`/connections/${v.id}/sync`, {
+        method: 'POST',
+        body: v.history ? { history: true } : undefined,
+      }),
+    onSuccess: (_r, v) => {
+      toast(
+        'success',
+        v.history
+          ? 'Carga del histórico en cola: puede tardar unos minutos'
+          : 'Sincronización en cola',
+      );
       refresh();
     },
     onError: (e) => toast('error', e.message),
@@ -271,12 +280,28 @@ export function SourcesPage() {
                     )}
                     <Button
                       size="sm"
-                      onClick={() => sync.mutate(c.id)}
-                      loading={sync.isPending && sync.variables === c.id}
+                      onClick={() => sync.mutate({ id: c.id })}
+                      loading={
+                        sync.isPending && sync.variables?.id === c.id && !sync.variables.history
+                      }
                       disabled={c.status === 'disconnected'}
                     >
                       <RefreshCw className="size-3.5" aria-hidden /> Sincronizar
                     </Button>
+                    {(c.provider === 'facebook_page' || c.provider === 'instagram_business') && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        title="Vuelve a leer todas las publicaciones de los últimos 12 meses y sus comentarios"
+                        onClick={() => sync.mutate({ id: c.id, history: true })}
+                        loading={
+                          sync.isPending && sync.variables?.id === c.id && sync.variables.history
+                        }
+                        disabled={c.status === 'disconnected'}
+                      >
+                        <History className="size-3.5" aria-hidden /> Cargar histórico
+                      </Button>
+                    )}
                     {c.status !== 'disconnected' && (
                       <Button size="sm" variant="secondary" onClick={() => setDisconnecting(c)}>
                         <Unplug className="size-3.5" aria-hidden /> Desconectar

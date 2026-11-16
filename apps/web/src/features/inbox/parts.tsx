@@ -1,4 +1,4 @@
-import { FlaskConical, Star } from 'lucide-react';
+import { FlaskConical, Star, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { Badge } from '@/components/ui/misc';
 import {
   PRIORITY_TONE,
@@ -41,7 +41,28 @@ export function RiskBadges({ flags }: { flags: string[] }) {
   );
 }
 
-export function Stars({ rating, scale }: { rating: string | null; scale: number | null }) {
+export function Stars({
+  rating,
+  scale,
+  recommendation,
+}: {
+  rating: string | null;
+  scale: number | null;
+  /** Recomendaciones de Facebook: no tienen estrellas. */
+  recommendation?: 'positive' | 'negative' | null;
+}) {
+  if (recommendation === 'positive')
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
+        <ThumbsUp className="size-3.5" aria-hidden /> Recomienda
+      </span>
+    );
+  if (recommendation === 'negative')
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
+        <ThumbsDown className="size-3.5" aria-hidden /> No recomienda
+      </span>
+    );
   if (rating == null) return <span className="text-xs text-muted">Sin valoración</span>;
   const value = Number(rating);
   const max = scale ?? 5;

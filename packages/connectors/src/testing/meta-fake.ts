@@ -19,6 +19,8 @@ export interface FakeMetaComment {
 export interface FakeMetaPost {
   id: string;
   comments: FakeMetaComment[];
+  /** Fecha de publicación (por defecto, ahora). */
+  createdAt?: string;
 }
 
 export interface FakeMetaPage {
@@ -29,6 +31,17 @@ export interface FakeMetaPage {
   posts: FakeMetaPost[];
   instagram?: { id: string; username: string; media: FakeMetaPost[] };
   subscribed: boolean;
+  /** Recomendaciones de la página (Meta ya no da el autor ni nota 1–5). */
+  ratings?: FakeMetaRating[];
+}
+
+export interface FakeMetaRating {
+  storyId: string;
+  recommendation: 'positive' | 'negative';
+  text?: string;
+  createdAt: string;
+  /** Respuestas en la historia de la recomendación. */
+  comments: FakeMetaComment[];
 }
 
 type Failure = { status: number; code: number; subcode?: number; message?: string } | 'network';
@@ -182,17 +195,35 @@ export class FakeMetaApi {
       p.subscribed = method === 'POST';
       return json({ success: true });
     }
+    m = /^\/(\d+)\/ratings$/.exec(path);
+    if (m) {
+      const p = this.page(m[1]!);
+      if (!p || t.pageId !== p.id) return err(400, 100, 'Unsupported get request', 33);
+      if (!this.userScopes().includes('pages_read_user_content'))
+        return err(403, 210, 'Requires pages_read_user_content');
+      return json({
+        data: (p.ratings ?? []).map((r) => ({
+          created_time: r.createdAt,
+          recommendation_type: r.recommendation,
+          ...(r.text ? { review_text: r.text } : {}),
+          open_graph_story: {
+            id: r.storyId,
+            comments: { data: r.comments.map((c) => ({ ...fbJson(c), from: { id: c.fromId } })) },
+          },
+        })),
+      });
+    }
     m = /^\/(\d+)\/feed$/.exec(path);
     if (m) {
       const p = this.page(m[1]!);
       if (!p || t.pageId !== p.id) return err(400, 100, 'Unsupported get request', 33);
-      return json({ data: p.posts.map((x) => ({ id: x.id })) });
+      return json(postsPage(p.posts, q, 'created_time'));
     }
     m = /^\/(\d+)\/media$/.exec(path);
     if (m) {
       const p = this.pages.find((x) => x.instagram?.id === m![1]);
       if (!p || t.pageId !== p.id) return err(400, 100, 'Unsupported get request', 33);
-      return json({ data: p.instagram!.media.map((x) => ({ id: x.id })) });
+      return json(postsPage(p.instagram!.media, q, 'timestamp'));
     }
     m = /^\/([\d_]+)\/(comments|replies)$/.exec(path);
     if (m) {
@@ -370,6 +401,26 @@ function igJson(c: FakeMetaComment): Record<string, unknown> {
     from: { id: c.fromId, username: c.fromName },
     hidden: Boolean(c.hidden),
     replies: { data: c.replies.map((r) => igJson(r)) },
+  };
+}
+
+/** Lista de publicaciones de más reciente a más antigua, con limit/after/since como la Graph API. */
+function postsPage(posts: FakeMetaPost[], q: URLSearchParams, timeField: string) {
+  const now = new Date().toISOString();
+  const since = q.get('since') ? Number(q.get('since')) * 1000 : null;
+  const sorted = [...posts]
+    .map((x) => ({ id: x.id, at: x.createdAt ?? now }))
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .filter((x) => since == null || Date.parse(x.at) >= since);
+  const limit = Number(q.get('limit') ?? 25);
+  const start = Number(q.get('after') ?? 0);
+  const slice = sorted.slice(start, start + limit);
+  const more = start + limit < sorted.length;
+  return {
+    data: slice.map((x) => ({ id: x.id, [timeField]: x.at })),
+    paging: more
+      ? { cursors: { after: String(start + limit) }, next: 'https://fake/next' }
+      : undefined,
   };
 }
 

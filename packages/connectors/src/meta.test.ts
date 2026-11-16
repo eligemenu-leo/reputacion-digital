@@ -12,6 +12,7 @@ import {
 } from './meta';
 import { FakeMetaApi } from './testing/meta-fake';
 
+const IG_ID = '178414000001';
 const redirectUri = 'http://localhost:8787/v1/oauth/meta/callback';
 
 function setup(api = new FakeMetaApi()) {
@@ -131,6 +132,119 @@ describe('Meta · inicio de sesión', () => {
   });
 });
 
+/** Recorre todas las páginas de una sincronización como hace la API. */
+async function drainFb(
+  s: Awaited<ReturnType<typeof login>>,
+  extra: { historySince?: Date } = {},
+  connector: 'fb' | 'ig' = 'fb',
+  account = '101',
+) {
+  const items = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 1000; i++) {
+    const r = await s[connector].fetchInteractions({
+      credentials: s.pageCreds,
+      accountExternalId: account,
+      cursor,
+      ...extra,
+    });
+    if (!r.ok) throw new Error(r.error.message);
+    items.push(...r.value.items);
+    cursor = r.value.nextCursor;
+    if (!cursor) break;
+  }
+  return items;
+}
+
+describe('Facebook · histórico y recomendaciones', () => {
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86400_000).toISOString();
+
+  it('sin histórico lee las últimas publicaciones; con histórico, todas desde la fecha', async () => {
+    const s = await login();
+    const page = s.api.page('101')!;
+    page.posts = Array.from({ length: 140 }, (_, i) => ({
+      id: `101_${1000 + i}`,
+      createdAt: daysAgo(i * 3), // una cada 3 días: ~420 días
+      comments: [],
+    }));
+    for (const post of page.posts) s.api.addComment(post, { text: `Comentario en ${post.id}` });
+    const recent = await drainFb(s);
+    expect(recent).toHaveLength(25); // postsPerSync por defecto
+    const year = await drainFb(s, { historySince: new Date(daysAgo(365)) });
+    // 0, 3, …, 363 días → 122 publicaciones dentro del año (se pagina de 100 en 100).
+    expect(year).toHaveLength(122);
+    const feedCalls = s.api.calls.filter(
+      (c) => c.url.includes('/101/feed') && c.url.includes('since='),
+    );
+    expect(feedCalls.length).toBe(2);
+  });
+
+  it('importa recomendaciones con «recomienda / no recomienda», texto y la respuesta de la página', async () => {
+    const s = await login();
+    s.api.page('101')!.ratings = [
+      {
+        storyId: '5550001',
+        recommendation: 'negative',
+        text: 'Recomendación ficticia: servicio lento',
+        createdAt: daysAgo(30),
+        comments: [
+          {
+            id: '5550001_1',
+            text: 'Sentimos la espera',
+            createdAt: daysAgo(29),
+            fromId: '101',
+            fromName: 'Página',
+            replies: [],
+          },
+        ],
+      },
+      { storyId: '5550002', recommendation: 'positive', createdAt: daysAgo(2000), comments: [] },
+    ];
+    const items = await drainFb(s);
+    const recs = items.filter((i) => i.kind === 'review');
+    expect(recs.map((r) => [r.externalId, r.recommendation, r.content])).toEqual([
+      ['5550001', 'negative', 'Recomendación ficticia: servicio lento'],
+      ['5550002', 'positive', null],
+    ]);
+    expect(recs[0]!.existingReply?.content).toBe('Sentimos la espera');
+    expect(recs[0]!.authorName).toBeUndefined();
+    expect(recs[0]!.rating).toBeUndefined();
+  });
+
+  it('sin permiso de recomendaciones se siguen leyendo los comentarios', async () => {
+    const s = await login(
+      setup(),
+      META_SCOPES.filter((x) => x !== 'pages_read_user_content'),
+    );
+    s.api.page('101')!.ratings = [
+      { storyId: '5550003', recommendation: 'positive', createdAt: daysAgo(1), comments: [] },
+    ];
+    s.api.addComment(s.api.page('101')!.posts[0]!, { text: 'Comentario ficticio' });
+    const items = await drainFb(s);
+    expect(items.some((i) => i.kind === 'review')).toBe(false);
+    expect(items.some((i) => i.kind === 'comment')).toBe(true);
+  });
+
+  it('Instagram: el histórico recorre las publicaciones desde la fecha', async () => {
+    const s = await login();
+    const ig = s.api.page('101')!.instagram!;
+    ig.media = Array.from({ length: 30 }, (_, i) => ({
+      id: `17900000${100 + i}`,
+      createdAt: daysAgo(i * 20),
+      comments: [],
+    }));
+    for (const m of ig.media) s.api.addComment(m, { text: `IG ${m.id}` });
+    const igCreds = s.pageCreds;
+    const year = await drainFb(
+      { ...s, pageCreds: igCreds },
+      { historySince: new Date(daysAgo(365)) },
+      'ig',
+      IG_ID,
+    );
+    expect(year).toHaveLength(19); // 0, 20, …, 360 días
+  });
+});
+
 describe('Facebook · comentarios', () => {
   it('importa comentarios de primer nivel y toma la respuesta de la página como existente', async () => {
     const s = await login();
@@ -174,8 +288,16 @@ describe('Facebook · comentarios', () => {
       accountExternalId: '101',
       cursor: first.ok ? first.value.nextCursor : undefined,
     });
-    expect(second.ok && second.value.nextCursor).toBeUndefined();
-    const texts = [first, second].flatMap((x) => (x.ok ? x.value.items.map((i) => i.content) : []));
+    // Tras la última publicación queda una página más: las recomendaciones.
+    const third = await s.fb.fetchInteractions({
+      credentials: s.pageCreds,
+      accountExternalId: '101',
+      cursor: second.ok ? second.value.nextCursor : undefined,
+    });
+    expect(third.ok && third.value.nextCursor).toBeUndefined();
+    const texts = [first, second, third].flatMap((x) =>
+      x.ok ? x.value.items.map((i) => i.content) : [],
+    );
     expect(texts.sort()).toEqual(['dos', 'uno']);
   });
 

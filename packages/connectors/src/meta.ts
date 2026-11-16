@@ -554,15 +554,24 @@ const SUPPORTED: Capability[] = [
 ];
 
 /** Cursor de sincronización: publicaciones pendientes de revisar en esta pasada. */
+/** Tope de publicaciones por carga del histórico (por fuente). */
+export const META_HISTORY_MAX_POSTS = 1000;
+
 interface SyncCursor {
   posts: string[];
+  /** Quedan por leer las recomendaciones de la página (Facebook). */
+  ratings?: boolean;
 }
 const encodeCursor = (c: SyncCursor) => Buffer.from(JSON.stringify(c)).toString('base64url');
 function decodeCursor(s: string | undefined): SyncCursor | null {
   if (!s) return null;
   try {
     const c = JSON.parse(Buffer.from(s, 'base64url').toString('utf8')) as SyncCursor;
-    return Array.isArray(c.posts) && c.posts.every((p) => typeof p === 'string') ? c : null;
+    return Array.isArray(c.posts) &&
+      c.posts.every((p) => typeof p === 'string') &&
+      (c.ratings === undefined || typeof c.ratings === 'boolean')
+      ? c
+      : null;
   } catch {
     return null;
   }
@@ -600,6 +609,55 @@ abstract class MetaConnectorBase implements ProviderConnector {
   }
 
   protected abstract notes(): string[];
+
+  /**
+   * Publicaciones a revisar: las `postsPerSync` más recientes o, en la carga del
+   * histórico, todas desde `historySince` (hasta META_HISTORY_MAX_POSTS).
+   */
+  protected async listPosts(
+    edge: string,
+    token: string,
+    timeField: 'created_time' | 'timestamp',
+    historySince?: Date,
+  ): Promise<Result<string[]>> {
+    if (!historySince) {
+      const r = await this.graph.call<{ data?: { id: string }[] }>('GET', edge, {
+        token,
+        query: { fields: 'id', limit: String(this.graph.postsPerSync) },
+      });
+      if (!r.ok) return fail(r.error);
+      return ok((r.value.data ?? []).map((x) => x.id).filter((x) => ID.test(x)));
+    }
+    const ids: string[] = [];
+    let after: string | undefined;
+    while (ids.length < META_HISTORY_MAX_POSTS) {
+      const r = await this.graph.call<{
+        data?: Record<string, string>[];
+        paging?: { cursors?: { after?: string }; next?: string };
+      }>('GET', edge, {
+        token,
+        query: {
+          fields: `id,${timeField}`,
+          limit: '100',
+          since: String(Math.floor(historySince.getTime() / 1000)),
+          ...(after ? { after } : {}),
+        },
+      });
+      if (!r.ok) return ids.length ? ok(ids) : fail(r.error);
+      let older = false;
+      for (const x of r.value.data ?? []) {
+        const at = x[timeField] ? new Date(x[timeField]!) : null;
+        if (at && at < historySince) {
+          older = true; // vienen de más reciente a más antigua
+          break;
+        }
+        if (x.id && ID.test(x.id) && !ids.includes(x.id)) ids.push(x.id);
+      }
+      after = r.value.paging?.next ? r.value.paging.cursors?.after : undefined;
+      if (older || !after) break;
+    }
+    return ok(ids.slice(0, META_HISTORY_MAX_POSTS));
+  }
 
   async connect(params: { redirectUri: string; state: string }): Promise<Result<OAuthStart>> {
     return ok({
@@ -723,6 +781,25 @@ interface FbComment {
   comments?: { data?: FbComment[] };
 }
 
+interface FbRating {
+  created_time: string;
+  recommendation_type?: string;
+  review_text?: string;
+  reviewer?: { id?: string; name?: string };
+  open_graph_story?: {
+    id: string;
+    comments?: {
+      data?: { id: string; message?: string; created_time: string; from?: { id: string } }[];
+    };
+  };
+}
+
+const FB_RATING_FIELDS =
+  'created_time,recommendation_type,review_text,reviewer{id,name},open_graph_story{id,comments.limit(25){id,message,created_time,from{id}}}';
+
+/** Permiso necesario para leer las recomendaciones de la página. */
+export const FACEBOOK_RATINGS_SCOPE = 'pages_read_user_content';
+
 const FB_COMMENT_FIELDS =
   'id,message,created_time,from{id,name},permalink_url,can_comment,is_hidden,comments.limit(25){id,message,created_time,from{id,name}}';
 
@@ -733,7 +810,7 @@ export class FacebookPageConnector extends MetaConnectorBase {
 
   protected notes() {
     return [
-      'Comentarios de primer nivel en las publicaciones recientes de la página.',
+      'Comentarios de primer nivel en las publicaciones recientes de la página y recomendaciones de la página.',
       'Las respuestas entre usuarios dentro de un hilo no se importan todavía.',
       'Responder requiere pages_manage_engagement y el rol de moderación en la página.',
     ];
@@ -748,15 +825,23 @@ export class FacebookPageConnector extends MetaConnectorBase {
     if (!ID.test(pageId)) return badId('página');
     let cursor = decodeCursor(p.cursor);
     if (!cursor) {
-      const posts = await this.graph.call<{ data?: { id: string }[] }>('GET', `/${pageId}/feed`, {
-        token: p.credentials.accessToken,
-        query: { fields: 'id', limit: String(this.graph.postsPerSync) },
-      });
+      const posts = await this.listPosts(
+        `/${pageId}/feed`,
+        p.credentials.accessToken,
+        'created_time',
+        p.historySince,
+      );
       if (!posts.ok) return fail(posts.error);
-      cursor = { posts: (posts.value.data ?? []).map((x) => x.id).filter((x) => ID.test(x)) };
+      cursor = {
+        posts: posts.value,
+        ratings: p.credentials.scopes.includes(FACEBOOK_RATINGS_SCOPE),
+      };
     }
     const [postId, ...rest] = cursor.posts;
-    if (!postId) return ok({ items: [], complete: true });
+    if (!postId) {
+      if (cursor.ratings) return this.fetchRatings(pageId, p.credentials.accessToken);
+      return ok({ items: [], complete: true });
+    }
     const items: NormalizedInteraction[] = [];
     let after: string | undefined;
     for (let i = 0; i < 5; i++) {
@@ -787,9 +872,72 @@ export class FacebookPageConnector extends MetaConnectorBase {
     }
     return ok({
       items,
-      nextCursor: rest.length ? encodeCursor({ posts: rest }) : undefined,
+      nextCursor:
+        rest.length || cursor.ratings
+          ? encodeCursor({ posts: rest, ratings: cursor.ratings })
+          : undefined,
       complete: true,
     });
+  }
+
+  /**
+   * Recomendaciones de la página («¿Recomiendas…?»). Meta ya no da nota 1–5 ni el
+   * autor (reviewer llega vacío): se guarda si recomienda o no y el texto. El id
+   * es el de su historia (open_graph_story), que es donde se responde.
+   */
+  private async fetchRatings(pageId: string, token: string): Promise<Result<FetchPage>> {
+    const items: NormalizedInteraction[] = [];
+    let after: string | undefined;
+    for (let i = 0; i < 10; i++) {
+      const r = await this.graph.call<{
+        data?: FbRating[];
+        paging?: { cursors?: { after?: string }; next?: string };
+      }>('GET', `/${pageId}/ratings`, {
+        token,
+        query: { fields: FB_RATING_FIELDS, limit: '100', ...(after ? { after } : {}) },
+      });
+      if (!r.ok) {
+        // Sin permiso para recomendaciones (o la página no las tiene activas): no bloquea los comentarios.
+        if (r.error.kind === 'insufficient_permissions' || r.error.kind === 'not_found') break;
+        return items.length ? ok({ items, complete: true }) : fail(r.error);
+      }
+      for (const x of r.value.data ?? []) {
+        const n = this.normalizeRating(x, pageId);
+        if (n) items.push(n);
+      }
+      after = r.value.paging?.next ? r.value.paging.cursors?.after : undefined;
+      if (!after) break;
+    }
+    return ok({ items, complete: true });
+  }
+
+  private normalizeRating(x: FbRating, pageId: string): NormalizedInteraction | null {
+    const storyId = x.open_graph_story?.id;
+    if (!storyId || !ID.test(storyId)) return null;
+    const content = x.review_text?.trim() ? x.review_text : null;
+    const recommendation =
+      x.recommendation_type === 'positive' || x.recommendation_type === 'negative'
+        ? x.recommendation_type
+        : undefined;
+    const own = (x.open_graph_story?.comments?.data ?? [])
+      .filter((c) => c.from?.id === pageId && c.message)
+      .sort((a, b) => b.created_time.localeCompare(a.created_time))[0];
+    return {
+      provider: this.provider,
+      kind: 'review',
+      externalId: storyId,
+      authorName: x.reviewer?.name,
+      authorExternalId: x.reviewer?.id,
+      content,
+      recommendation,
+      url: `https://www.facebook.com/${storyId}`,
+      createdAt: new Date(x.created_time),
+      existingReply: own
+        ? { content: own.message!, updatedAt: new Date(own.created_time), externalId: own.id }
+        : undefined,
+      contentHash: contentHash(`${recommendation ?? ''}|${content ?? ''}`),
+      raw: { recommendation: recommendation ?? null },
+    };
   }
 
   async fetchInteraction(
@@ -920,12 +1068,14 @@ export class InstagramBusinessConnector extends MetaConnectorBase {
     if (!ID.test(igId)) return badId('cuenta de Instagram');
     let cursor = decodeCursor(p.cursor);
     if (!cursor) {
-      const media = await this.graph.call<{ data?: { id: string }[] }>('GET', `/${igId}/media`, {
-        token: p.credentials.accessToken,
-        query: { fields: 'id', limit: String(this.graph.postsPerSync) },
-      });
+      const media = await this.listPosts(
+        `/${igId}/media`,
+        p.credentials.accessToken,
+        'timestamp',
+        p.historySince,
+      );
       if (!media.ok) return fail(media.error);
-      cursor = { posts: (media.value.data ?? []).map((x) => x.id).filter((x) => ID.test(x)) };
+      cursor = { posts: media.value };
     }
     const [mediaId, ...rest] = cursor.posts;
     if (!mediaId) return ok({ items: [], complete: true });

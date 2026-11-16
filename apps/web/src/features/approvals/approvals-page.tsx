@@ -16,6 +16,7 @@ interface ApprovalItem {
   content: string | null;
   rating: string | null;
   ratingScale: number | null;
+  recommendation: 'positive' | 'negative' | null;
   priority: number;
   riskFlags: string[];
   requiresSpecialist: boolean;
@@ -73,7 +74,11 @@ export function ApprovalsPage() {
                     >
                       {a.authorDisplayName ?? 'Anónimo'}
                     </Link>
-                    <Stars rating={a.rating} scale={a.ratingScale} />
+                    <Stars
+                      rating={a.rating}
+                      scale={a.ratingScale}
+                      recommendation={a.recommendation}
+                    />
                     <span>
                       · {a.clientName} · {providerLabel(a.provider)}
                     </span>

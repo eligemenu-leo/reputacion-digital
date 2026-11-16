@@ -77,6 +77,8 @@ const schema = z
       .regex(/^v\d+\.\d$/)
       .default('v26.0'),
     META_POSTS_PER_SYNC: z.coerce.number().int().min(1).max(50).default(25),
+    /** Meses de histórico en la primera sincronización de una fuente (0 = sin histórico). */
+    SYNC_HISTORY_MONTHS: z.coerce.number().int().min(0).max(120).default(12),
     META_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(20_000),
   })
   .refine((c) => Boolean(c.GOOGLE_OAUTH_CLIENT_ID) === Boolean(c.GOOGLE_OAUTH_CLIENT_SECRET), {

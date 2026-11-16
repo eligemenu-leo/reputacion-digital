@@ -40,6 +40,7 @@ const deps: JobDeps = {
   registry: createConnectorRegistry(sql, integrations),
   queue: new PgBossQueue(boss),
   authorRefPepper: config.AUTHOR_REF_PEPPER,
+  historyMonths: config.SYNC_HISTORY_MONTHS,
   log,
 };
 const ai = aiRuntimeFromConfig(config);

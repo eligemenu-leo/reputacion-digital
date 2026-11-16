@@ -570,6 +570,63 @@ describe('Fase 4 · webhooks de Meta', () => {
   });
 });
 
+describe('Fase 4 · histórico y recomendaciones de Facebook', () => {
+  it('«Cargar histórico» lee publicaciones antiguas y las recomendaciones con su tipo', async () => {
+    const page = meta.page('101')!;
+    const old = {
+      id: '101_900',
+      createdAt: new Date(Date.now() - 200 * 86400_000).toISOString(),
+      comments: [],
+    };
+    // Más publicaciones recientes de las que lee una sincronización normal.
+    for (let i = 0; i < 30; i++) page.posts.push({ id: `101_${800 + i}`, comments: [] });
+    page.posts.push(old);
+    meta.addComment(old, { text: 'Comentario ficticio antiguo' });
+    page.ratings = [
+      {
+        storyId: '7770001',
+        recommendation: 'negative',
+        text: 'Recomendación ficticia negativa',
+        createdAt: new Date(Date.now() - 400 * 86400_000).toISOString(),
+        comments: [],
+      },
+    ];
+    const r = await call('POST', `/v1/connections/${fbAccount}/sync`, w.users.adminA, {
+      history: true,
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(202);
+    const [run] = await seed<{ trigger: string }[]>`
+      select trigger from public.provider_sync_runs where id = ${r.body.runId}`;
+    expect(run!.trigger).toBe('history');
+    const res = await drain(QUEUES.sync, (id) => runSync(deps, id));
+    expect(res.map((x) => (x as { status: string }).status)).toEqual(['succeeded']);
+    const rows = await seed<
+      { kind: string; content: string; recommendation: string | null; priority: number }[]
+    >`
+      select kind, content, recommendation, priority from public.external_interactions
+       where connected_account_id = ${fbAccount} and content in ('Comentario ficticio antiguo', 'Recomendación ficticia negativa')
+       order by kind::text`;
+    expect(rows.map((x) => [x.kind, x.recommendation])).toEqual([
+      ['comment', null],
+      ['review', 'negative'],
+    ]);
+    expect(rows[1]!.priority).toBeGreaterThanOrEqual(3);
+    const list = await call(
+      'GET',
+      `/v1/organizations/${w.orgA}/interactions?q=Recomendación`,
+      w.users.adminA,
+    );
+    expect(list.status).toBe(200);
+  });
+
+  it('pedir el histórico exige poder gestionar la fuente', async () => {
+    const r = await call('POST', `/v1/connections/${fbAccount}/sync`, w.users.managerA, {
+      history: true,
+    });
+    expect([403, 404]).toContain(r.status);
+  });
+});
+
 describe('Fase 4 · caducidad y desconexión de Meta', () => {
   it('un token invalidado por Meta deja la fuente como «credenciales caducadas»', async () => {
     const saved = new Map(meta.tokens);

@@ -21,6 +21,8 @@ export interface JobDeps {
   /** Margen de solape entre ventanas incrementales para no perder elementos en el borde. */
   overlapMinutes?: number;
   maxPages?: number;
+  /** Meses de histórico que se cargan en la primera sincronización o al pedirlo (por defecto 12). */
+  historyMonths?: number;
   /** Encolar la clasificación por IA de lo nuevo o modificado (si la IA está configurada). */
   aiAutoClassify?: boolean;
 }
@@ -43,7 +45,7 @@ async function loadAccount(tx: Tx, id: string) {
 export async function enqueueSync(
   tx: Tx,
   accountId: string,
-  trigger: 'schedule' | 'manual' | 'webhook' | 'recovery',
+  trigger: 'schedule' | 'manual' | 'webhook' | 'recovery' | 'history',
   requestedBy: string | null,
 ): Promise<{ runId: string; created: boolean }> {
   const [existing] = await tx<{ id: string }[]>`
@@ -96,19 +98,19 @@ async function ingest(
       from public.external_interactions
      where provider = ${account.provider} and connected_account_id = ${account.id} and external_id = ${item.externalId}
      for update`;
-  const t = triage(item.content, item.rating, item.ratingScale);
+  const t = triage(item.content, item.rating, item.ratingScale, item.recommendation);
   const reply = item.existingReply;
   if (!cur) {
     const [row] = await tx<{ id: string }[]>`
       insert into public.external_interactions
         (organization_id, client_id, location_id, connected_account_id, provider, kind, external_id, external_parent_id, url,
-         author_display_name, author_ref_hash, content, language, rating, rating_scale, content_hash, original_created_at,
+         author_display_name, author_ref_hash, content, language, rating, rating_scale, recommendation, content_hash, original_created_at,
          priority, risk_flags, requires_specialist, existing_reply_content, existing_reply_at, is_simulated, ai_status)
       values (${account.organizationId}, ${account.clientId}, ${account.locationId}, ${account.id}, ${account.provider},
               ${item.kind}, ${item.externalId}, ${item.externalParentId ?? null}, ${item.url ?? null},
               ${item.authorName ?? null}, ${authorRef(pepper, account.provider, item.authorExternalId)},
               ${item.content}, ${item.language ?? null}, ${item.rating ?? null}, ${item.ratingScale ?? null},
-              ${item.contentHash}, ${item.createdAt}, ${t.priority}, ${t.riskFlags}, ${t.requiresSpecialist},
+              ${item.recommendation ?? null}, ${item.contentHash}, ${item.createdAt}, ${t.priority}, ${t.riskFlags}, ${t.requiresSpecialist},
               ${reply?.content ?? null}, ${reply?.updatedAt ?? null}, ${account.isSimulated}, ${aiStatus})
       on conflict on constraint external_interactions_dedupe do nothing
       returning id`;
@@ -140,7 +142,8 @@ async function ingest(
   const flags = [...new Set([...cur.riskFlags, ...t.riskFlags])];
   await tx`
     update public.external_interactions set
-      content = ${item.content}, rating = ${item.rating ?? null}, content_hash = ${item.contentHash},
+      content = ${item.content}, rating = ${item.rating ?? null}, recommendation = ${item.recommendation ?? null},
+      content_hash = ${item.contentHash},
       existing_reply_content = ${reply?.content ?? null}, existing_reply_at = ${reply?.updatedAt ?? null},
       priority = greatest(priority, ${t.priority}), risk_flags = ${flags},
       requires_specialist = requires_specialist or ${t.requiresSpecialist}, last_seen_at = now(),
@@ -191,9 +194,11 @@ function accountStatusFor(e: ConnectorError): string {
 export async function runSync(deps: JobDeps, runId: string) {
   const { sql } = deps;
   const claimed = await withService(sql, null, async (tx) => {
-    const [r] = await tx<{ id: string; connectedAccountId: string; startedAt: Date }[]>`
+    const [r] = await tx<
+      { id: string; connectedAccountId: string; startedAt: Date; trigger: string }[]
+    >`
       update public.provider_sync_runs set status = 'running', started_at = now()
-       where id = ${runId} and status = 'queued' returning id, connected_account_id, started_at`;
+       where id = ${runId} and status = 'queued' returning id, connected_account_id, started_at, trigger`;
     if (!r) return null;
     const account = await loadAccount(tx, r.connectedAccountId);
     if (account && account.status !== 'disconnected') {
@@ -252,8 +257,13 @@ export async function runSync(deps: JobDeps, runId: string) {
   const since = account.lastSuccessSyncAt
     ? new Date(account.lastSuccessSyncAt.getTime() - overlap)
     : undefined;
+  // Histórico: en la primera sincronización o cuando se pide expresamente.
+  const months = deps.historyMonths ?? 12;
+  const history = months > 0 && (!account.lastSuccessSyncAt || run.trigger === 'history');
+  const historySince = history ? new Date(Date.now() - months * 30.44 * 86400_000) : undefined;
+  const maxPages = history ? Math.max(deps.maxPages ?? 50, 2000) : (deps.maxPages ?? 50);
   let cursor: string | undefined;
-  for (let page = 0; page < (deps.maxPages ?? 50); page++) {
+  for (let page = 0; page < maxPages; page++) {
     // Permite cancelar entre páginas.
     const [state] = await withService(
       sql,
@@ -268,6 +278,7 @@ export async function runSync(deps: JobDeps, runId: string) {
       since,
       cursor,
       pageSize: 50,
+      historySince,
     });
     if (!res.ok) {
       await finish(c.created + c.updated > 0 ? 'partial' : 'failed', res.error);

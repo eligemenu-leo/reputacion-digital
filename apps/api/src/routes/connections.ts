@@ -186,10 +186,11 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.post('/connections/:id/sync', async (req, reply) => {
     const auth = requireAuth(req);
     const id = idOf(req.params, 'id');
+    const body = parse(z.object({ history: z.boolean().default(false) }).strict(), req.body ?? {});
     const r = await withAccount(sql, auth, id, async (tx, a) => {
       if (a.status === 'disconnected')
         throw new AppError('CONFLICT', 'La fuente está desconectada');
-      const run = await enqueueSync(tx, id, 'manual', auth.userId);
+      const run = await enqueueSync(tx, id, body.history ? 'history' : 'manual', auth.userId);
       return run;
     });
     if (r.created) await notify(queue, QUEUES.sync, r.runId, req.log);
