@@ -65,8 +65,8 @@ Cambio respecto al plan del 16-nov: la API y el worker van al **VPS de IONOS** q
 | Pieza | Dónde |
 |---|---|
 | Base de datos + Auth | Supabase Free, proyecto `reputacion-digital` (ref `msebvmmmfiryhcjntawx`, Fráncfort) |
-| API + worker | VPS IONOS, extensión Docker de Plesk, `deploy/vps/compose.yml` |
-| API pública | `https://api-reputacion.eligemenu.com` (DNS en Cloudflare, nube gris; certificado Let's Encrypt de Plesk; regla de proxy de Docker → `127.0.0.1:8787`) |
+| API + worker | VPS IONOS, Docker nativo del VPS (como bebalia), `/opt/reputacion-digital` con `deploy/vps/compose.yml` |
+| API pública | `https://api-reputacion.eligemenu.com` (DNS en Cloudflare, nube gris; certificado Let's Encrypt de Plesk; proxy de Plesk → `127.0.0.1:3110`) |
 | Web | Cloudflare Pages en `https://reputacion.eligemenu.com` |
 
 **Imagen:** `.github/workflows/image.yml` publica `ghcr.io/eligemenu-leo/reputacion-digital` (`:staging` desde la rama `fase-4b-meta`, `:latest` desde `main`, y `:sha-xxxxxxx`). La imagen no lleva secretos. Si el paquete de GHCR es privado, el VPS necesita `docker login ghcr.io` con un token de solo lectura; lo más simple es marcar el paquete como público (el código ya lo es).
@@ -77,7 +77,7 @@ Cambio respecto al plan del 16-nov: la API y el worker van al **VPS de IONOS** q
 
 **Migraciones aplicadas** el 2026-11-17 con el conector MCP de Supabase: las versiones del historial remoto son marcas de tiempo de ese día, no las de `supabase/migrations`. Antes de usar `supabase db push` contra este proyecto, alinear el historial con `supabase migration repair` (marcar como aplicadas las 10 versiones del repo y revertir las del conector).
 
-**Actualizar:** en Plesk → Docker, «Volver a descargar la imagen» y recrear los dos contenedores (o `docker compose pull && docker compose up -d` en `deploy/vps`).
+**Actualizar:** `cd /opt/reputacion-digital && docker compose pull && docker compose up -d`. No instalar la extensión Docker de Plesk: reescribe los repositorios de Docker y podría afectar a los otros proyectos.
 
 ## Plan anterior (descartado el 2026-11-17): Supabase gratis + Fly.io + Cloudflare
 

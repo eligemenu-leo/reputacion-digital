@@ -1,7 +1,7 @@
-# API y worker en el VPS (extensión Docker de Plesk o `docker compose`).
+# API y worker en el VPS (`docker compose` nativo, en /opt/reputacion-digital).
 # Secretos: en ./api.env (NO en el repositorio; permisos 600). Plantilla: api.env.example.
-# La API solo escucha en 127.0.0.1:8787; Plesk (nginx) la publica con https en
-# api-reputacion.eligemenu.com mediante una regla de proxy de Docker.
+# La API solo escucha en 127.0.0.1:3110; Plesk (nginx) la publica con https en
+# api-reputacion.eligemenu.com mediante el proxy de Plesk.
 name: reputacion
 
 x-app: &app
@@ -24,7 +24,7 @@ services:
   api:
     <<: *app
     command: ['node', '--enable-source-maps', 'dist/server.js']
-    ports: ['127.0.0.1:8787:8787']
+    ports: ['127.0.0.1:3110:8787']
     mem_limit: 512m
     healthcheck:
       test:
