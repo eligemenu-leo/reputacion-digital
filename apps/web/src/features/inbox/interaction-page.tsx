@@ -150,7 +150,7 @@ export function InteractionPage() {
           <Card className="p-5">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-lg font-semibold">{i.authorDisplayName ?? 'Autor anónimo'}</h1>
-              <Stars rating={i.rating} scale={i.ratingScale} />
+              <Stars rating={i.rating} scale={i.ratingScale} recommendation={i.recommendation} />
               {i.isSimulated && <SimulatedBadge />}
             </div>
             <p className="mt-1 text-sm text-muted">

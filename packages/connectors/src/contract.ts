@@ -114,6 +114,8 @@ export interface NormalizedInteraction {
   language?: string;
   rating?: number;
   ratingScale?: number;
+  /** Recomendaciones de Facebook: recomienda o no (no tienen nota numérica). */
+  recommendation?: 'positive' | 'negative';
   url?: string;
   createdAt: Date;
   updatedAt?: Date;
@@ -138,6 +140,11 @@ export interface FetchParams {
   since?: Date;
   cursor?: string;
   pageSize?: number;
+  /**
+   * Carga del histórico: además de lo reciente, recorrer todo lo publicado desde
+   * esta fecha (p. ej. al conectar una fuente). Los conectores sin histórico lo ignoran.
+   */
+  historySince?: Date;
 }
 
 export interface PublishParams {

@@ -50,6 +50,9 @@ importers:
       fastify:
         specifier: ^5.2.0
         version: 5.12.8
+      jose:
+        specifier: ^5.9.6
+        version: 5.10.0
       pg-boss:
         specifier: ^12.38.2
         version: 12.38.2(@opentelemetry/api@1.10.0)
@@ -66,9 +69,6 @@ importers:
       esbuild:
         specifier: 0.25.12
         version: 0.25.12
-      jose:
-        specifier: ^5.9.6
-        version: 5.10.0
       tsx:
         specifier: ^4.19.2
         version: 4.23.15

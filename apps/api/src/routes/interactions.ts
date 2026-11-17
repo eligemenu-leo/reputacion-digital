@@ -99,7 +99,7 @@ export async function interactionRoutes(app: FastifyInstance) {
       const dir = q.dir === 'asc' ? 'asc nulls first' : 'desc nulls last';
       const rows = await tx`
         select i.id, i.client_id, c.name as client_name, i.provider, i.kind, i.author_display_name, i.content, i.rating,
-               i.rating_scale, i.state, i.priority, i.assignee_id, p.full_name as assignee_name, i.risk_flags,
+               i.rating_scale, i.recommendation, i.state, i.priority, i.assignee_id, p.full_name as assignee_name, i.risk_flags,
                i.requires_specialist, i.original_created_at, i.is_simulated, i.responded_at,
                (i.existing_reply_content is not null) as has_reply, i.sentiment, i.ai_status,
                count(*) over()::int as total_count
@@ -151,7 +151,7 @@ export async function interactionRoutes(app: FastifyInstance) {
       const [interaction] = await tx`
         select i.id, i.organization_id, i.client_id, c.name as client_name, i.location_id, l.name as location_name,
                i.connected_account_id, a.display_name as account_name, a.status as account_status, i.provider, i.kind,
-               i.external_id, i.url, i.author_display_name, i.content, i.language, i.rating, i.rating_scale,
+               i.external_id, i.url, i.author_display_name, i.content, i.language, i.rating, i.rating_scale, i.recommendation,
                i.original_created_at, i.first_seen_at, i.last_seen_at, i.state, i.priority, i.assignee_id,
                p.full_name as assignee_name, p.email as assignee_email, i.sentiment, i.category, i.risk_flags,
                i.requires_specialist, i.existing_reply_content, i.existing_reply_at, i.approval_requested_by,
@@ -387,7 +387,7 @@ export async function interactionRoutes(app: FastifyInstance) {
     return withUser(sql, auth, async (tx) => {
       await requireOrgPermission(tx, auth, orgId, 'organization.read');
       const items = await tx`
-        select i.id, i.client_id, c.name as client_name, i.provider, i.author_display_name, i.content, i.rating, i.rating_scale,
+        select i.id, i.client_id, c.name as client_name, i.provider, i.author_display_name, i.content, i.rating, i.rating_scale, i.recommendation,
                i.priority, i.risk_flags, i.requires_specialist, i.original_created_at, i.approval_requested_at,
                rp.full_name as approval_requested_by_name, i.is_simulated,
                d.id as draft_id, d.version as draft_version, d.content as draft_content, d.content_hash as draft_hash

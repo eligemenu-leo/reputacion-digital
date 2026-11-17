@@ -38,6 +38,7 @@ export function triage(
   content: string | null,
   rating: number | null | undefined,
   scale = 5,
+  recommendation?: 'positive' | 'negative',
 ): Triage {
   const text = content ?? '';
   const riskFlags = RULES.filter((r) => r.re.test(text)).map((r) => r.flag);
@@ -46,6 +47,8 @@ export function triage(
   let priority: Triage['priority'] = 2;
   if (normalized != null && normalized <= 2) priority = 3;
   if (normalized != null && normalized >= 4 && !text) priority = 1;
+  if (recommendation === 'negative') priority = 3;
+  if (recommendation === 'positive' && !text) priority = 1;
   if (requiresSpecialist) priority = 4;
   return { priority, riskFlags, requiresSpecialist };
 }

@@ -10,7 +10,7 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createHash, randomBytes } from 'node:crypto';
-import { GOOGLE_SCOPE, type ExternalLocation } from '@rep/connectors';
+import { GOOGLE_SCOPE, metaScopes, type ExternalLocation } from '@rep/connectors';
 import { AppError, uuidSchema } from '@rep/shared';
 import { z } from 'zod';
 import { requireAuth } from '../app';
@@ -69,8 +69,19 @@ export async function googleRoutes(app: FastifyInstance) {
           ...(config.CREDENTIALS_ENCRYPTION_KEYS ? [] : ['CREDENTIALS_ENCRYPTION_KEYS']),
         ],
       },
-      facebook: { configured: false, missing: ['Fase 4 · bloque 2'] },
-      instagram: { configured: false, missing: ['Fase 4 · bloque 2'] },
+      // Facebook e Instagram comparten la app de Meta y el inicio de sesión.
+      meta: {
+        configured: Boolean(integrations.meta),
+        redirectUri: integrations.metaRedirectUri,
+        webhookUrl: integrations.metaWebhookUrl,
+        webhooks: Boolean(integrations.meta?.webhookVerifyToken),
+        graphVersion: config.META_GRAPH_VERSION,
+        scopes: metaScopes(Boolean(integrations.meta?.webhookVerifyToken)),
+        missing: [
+          ...(config.META_APP_ID ? [] : ['META_APP_ID', 'META_APP_SECRET']),
+          ...(config.CREDENTIALS_ENCRYPTION_KEYS ? [] : ['CREDENTIALS_ENCRYPTION_KEYS']),
+        ],
+      },
     };
   });
 
@@ -114,9 +125,11 @@ export async function googleRoutes(app: FastifyInstance) {
       }),
       req.query,
     );
+    // Hasta saber la organización (por el state), la web resuelve /fuentes con la del usuario.
+    let orgPath = '';
     const back = (r: FastifyReply, params: Record<string, string>) =>
       r.redirect(
-        `${config.APP_URL.replace(/\/$/, '')}/fuentes?${new URLSearchParams(params)}`,
+        `${config.APP_URL.replace(/\/$/, '')}${orgPath}/fuentes?${new URLSearchParams(params)}`,
         303,
       );
     const failWith = (e: CallbackError) => back(reply, { google_error: e });
@@ -144,6 +157,7 @@ export async function googleRoutes(app: FastifyInstance) {
       return s ?? null;
     });
     if (!st) return failWith('invalid_state');
+    orgPath = `/o/${st.organizationId}`;
     if (q.error || !q.code)
       return failWith(q.error === 'access_denied' ? 'access_denied' : 'exchange_failed');
 

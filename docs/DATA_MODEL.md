@@ -93,7 +93,7 @@ Implementado en `private.has_client_permission_in(org, client, perm)` (SECURITY 
 2. `private.guard_publication_job` (al insertar un trabajo): la **última** decisión de la interacción debe ser una aprobación, sobre el **último** borrador, y `sha256(content)` debe coincidir con el hash aprobado (42501). Por eso editar el texto después de aprobar anula la aprobación sin posibilidad de saltársela.
 3. `publication_jobs_one_live`: como máximo un trabajo `queued/running/published` por interacción → no hay segunda publicación accidental.
 4. `private.freeze_publication_job`: el texto, el borrador, la aprobación y la clave idempotente no cambian; `published` es terminal.
-5. Borradores, decisiones, versiones, recibos e historial son append-only (`private.forbid_mutation`).
+5. Borradores, decisiones, versiones, recibos e historial son append-only (`private.forbid_mutation`). Única excepción: `private.purge_client()` al eliminar un cliente (ADR-029); `audit_logs` nunca. El gasto de IA de clientes eliminados queda en `ai_spend_archive` (organización, mes, gasto, llamadas).
 6. `authenticated` solo tiene `SELECT` (filtrado por RLS: `connections.read` o `interactions.read` sobre el cliente). Toda mutación pasa por la API tras comprobar permisos y por el worker.
 
 **Índices:** `(organization_id, state, original_created_at desc)` para la bandeja, `(client_id, original_created_at desc)`, `(assignee_id)` parcial para abiertas, GIN sobre `search`, `(interaction_id, id)` en eventos, `(status, updated_at)` en trabajos.
@@ -135,6 +135,8 @@ public_mentions (id, organization_id, client_id, search_query_id, provider, url_
 
 **Credenciales (implementado, ADR-024):** `private.provider_credentials (id, organization_id, client_id, provider, sealed, key_id, scopes, access_expires_at, authorized_by, authorized_at, refreshed_at, revoked_at, last_error_kind)` con los tokens sellados por la API (AES-256-GCM, AAD = id). `private.oauth_states (state_hash pk, provider, organization_id, client_id, user_id, code_verifier_sealed, redirect_uri, expires_at, consumed_at)` para el flujo OAuth. `public.connected_accounts.credential_id → private.provider_credentials` (no expuesta a `authenticated`); restricción `connected_accounts_real_needs_credential`. Ni `anon` ni `authenticated` tienen privilegios sobre estas tablas.
 
+**Meta (implementado, ADR-026/027):** `provider_credentials.provider ∈ {google_business_profile, meta}`; para `meta` el sellado incluye el token de usuario y los tokens de las páginas elegidas, y `provider_user_ref` = HMAC del id de usuario de Facebook. `oauth_states.code_verifier_sealed` es opcional (Facebook Login no usa PKCE). `private.webhook_events (provider, event_id pk, account_external_id, interaction_external_id, event_type, received_at, matched_accounts)` deduplica avisos (7 días). Cada página de Facebook o cuenta de Instagram es una fila de `connected_accounts` con `config.pageId`. La credencial `meta` es de la organización (`client_id` nulo, ADR-028); las de Google exigen cliente (restricción `provider_credentials_client_scope`).
+
 ### Fase 5 — Alertas e informes
 
 ```sql
@@ -160,3 +162,7 @@ report_snapshots (id, organization_id, client_id, period, metrics jsonb, ai_summ
 | Tokens OAuth | hasta desconexión/revocación (borrado inmediato) | necesidad |
 
 Un job de retención (F5) aplicará estos plazos; el borrado de una organización elimina en cascada sus datos.
+
+### Histórico y recomendaciones (`20261119000100_history_recommendations.sql`)
+* `provider_sync_runs.trigger` admite `history` (carga del histórico pedida a mano).
+* `external_interactions.recommendation` (`positive` · `negative`): recomendaciones de Facebook, que no tienen nota numérica.

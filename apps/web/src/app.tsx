@@ -80,8 +80,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function HomeRedirect() {
+/**
+ * `section` lleva a esa pantalla de la primera organización conservando la
+ * query (p. ej. la vuelta de OAuth con un error que no sabe de qué organización es).
+ */
+function HomeRedirect({ section }: { section?: string }) {
   const me = useMe();
+  const { search } = useLocation();
   if (me.isLoading) return <FullscreenLoader />;
   if (me.isError)
     return (
@@ -90,7 +95,10 @@ function HomeRedirect() {
       </div>
     );
   const first = me.data?.memberships[0];
-  if (first) return <Navigate to={`/o/${first.organizationId}`} replace />;
+  if (first)
+    return (
+      <Navigate to={`/o/${first.organizationId}${section ? `/${section}${search}` : ''}`} replace />
+    );
   if (me.data?.isPlatformAdmin) return <Navigate to="/admin" replace />;
   return (
     <main className="grid min-h-dvh place-items-center px-4">
@@ -131,6 +139,14 @@ export function App() {
                   element={
                     <RequireAuth>
                       <HomeRedirect />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/fuentes"
+                  element={
+                    <RequireAuth>
+                      <HomeRedirect section="fuentes" />
                     </RequireAuth>
                   }
                 />

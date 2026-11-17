@@ -105,6 +105,31 @@ Formato: contexto → decisión → alternativas → consecuencias.
 * **Decisión:** cada ubicación de Google es una fila de `connected_accounts` (`external_account_id = accounts/A/locations/L`) que comparte la autorización con las demás fichas elegidas. La aptitud para responder (`VoiceOfMerchantState.hasVoiceOfMerchant`) se guarda en `capabilities`; sin ella no se llama nunca a `updateReply`.
 * **Motivo:** el motor de sincronización y publicación ya trabaja por fuente; el estado, los errores y la próxima ejecución se muestran por ficha, y un fallo en una no afecta a las demás.
 
+## ADR-026 · Un inicio de sesión de Meta para Facebook e Instagram; tokens de página solo de lo elegido
+* **Decisión:** se usa Facebook Login para empresas (no Instagram Login) con una sola app de Meta. La credencial (`provider = 'meta'`) sella el token de usuario y, tras elegir, los tokens de las páginas conectadas; cada página de Facebook y cada cuenta de Instagram es una fuente propia que apunta a esa credencial y opera con el token de su página.
+* **Motivo:** un solo permiso del cliente cubre ambas redes; los tokens de página no caducan por tiempo, así que no hace falta refrescar en segundo plano. No guardar tokens de páginas no elegidas reduce lo que se expone si se compromete la clave.
+* **Consecuencia:** revocar la app afecta a todas las páginas de ese usuario, por eso solo se revoca cuando ninguna otra autorización vigente es suya. Si Meta invalida un token, la fuente pasa a «Credenciales caducadas» y hay que volver a conectar.
+
+## ADR-027 · Webhooks: aviso = señal, la API es la fuente de verdad
+* **Decisión:** el webhook solo verifica la firma, deduplica (`private.webhook_events`) y encola una sincronización de la fuente. El contenido nunca se toma del aviso.
+* **Motivo:** los avisos pueden llegar repetidos, desordenados o incompletos; reutilizar la sincronización mantiene una sola ruta de ingesta (deduplicación, ediciones, triaje, IA). Si un aviso llega con una sincronización en curso, se adelanta la siguiente a un minuto.
+
+## ADR-028 · La autorización de Meta es de la organización; cada página se asigna a su cliente
+* **Decisión:** el inicio de sesión con Facebook se hace una vez por organización (`provider_credentials.client_id = null` para `meta`). Después, cada página de Facebook o cuenta de Instagram se asigna a un cliente distinto; una página solo puede estar activa en un cliente a la vez. La misma autorización sirve para asignar más páginas más tarde sin volver a Facebook.
+* **Motivo:** una agencia gestiona con una sola cuenta de Meta las páginas de muchos clientes (petición de Leo, 15/11/2026).
+* **Consecuencia:** iniciar la conexión exige `connections.manage` en la organización; asignar a un cliente exige ese permiso en el cliente. Para pasar una página a otro cliente se desconecta y se vuelve a asignar (las interacciones ya importadas siguen en el cliente original). Google sigue con autorización por cliente; se puede aplicar el mismo modelo si hace falta.
+
+## ADR-029 · Eliminar un cliente borra todos sus datos, sin romper la inmutabilidad del resto
+* **Contexto:** hace falta poder eliminar un cliente con sus opiniones, reseñas y comentarios. Pero el historial (versiones, aprobaciones, intentos, recibos y eventos) es append-only y varias claves son RESTRICT.
+* **Decisión:**
+  * `DELETE /v1/clients/:id` exige `clients.delete`, un permiso de organización que solo tiene `org_admin`, y MFA si está activada.
+  * Hay que escribir el nombre del cliente para confirmar. Se rechaza con 409 si hay publicaciones en cola o en curso.
+  * Primero se desconectan las fuentes y se liberan sus autorizaciones: revocación en Google y, en Meta, baja de las páginas que ya no se usan y borrado de su token de página.
+  * Después, `private.purge_client()` (solo service_role) marca la transacción con `app.purging_client`. Los triggers append-only y la auditoría por fila solo lo respetan para filas de ese cliente; `audit_logs` no se puede borrar nunca.
+  * El gasto de IA se conserva agregado por mes en `ai_spend_archive`, para que el presupuesto no «recupere» dinero ya gastado.
+  * Se deja una sola entrada `clients.purge` con recuentos y sin contenido.
+* **Consecuencia:** el borrado es irreversible y solo afecta a nuestra base de datos; no toca nada publicado en Google, Facebook o Instagram. Las entradas de auditoría anteriores se conservan.
+
 ## ADR-023 · Informes inmutables: cifras del sistema, texto de la IA
 * **Decisión:** cada informe (`report_snapshots`) guarda las métricas observadas y, por separado, el resumen de IA; la interfaz los distingue («Métrica observada» / «Conclusión generada por IA»). Ninguna cifra del texto puede no existir en las métricas; los hallazgos guardan las reseñas que los respaldan (≥ 3).
 * **Consecuencia:** un informe es reproducible y auditable; regenerar = informe nuevo. Generarlo exige `reports.read` + `clients.update` porque consume presupuesto de IA.

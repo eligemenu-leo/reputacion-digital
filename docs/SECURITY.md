@@ -19,6 +19,8 @@
 | Uso de datos simulados como reales | `is_simulated` solo con `provider = 'simulator'` (CHECK), simulador bloqueado en producción, etiqueta «Simulado» en toda la interfaz | ✅ F2 |
 | Fuga de secretos en logs | Redacción de `authorization`/`cookie` en Pino; `private.redact()` en auditoría; errores sin detalles internos | ✅ F1, probado |
 | Tokens OAuth expuestos | Sellados con AES-256-GCM por la API (clave fuera de la BD, AAD por fila) en `private.*`, sin privilegios para `authenticated`; nunca en respuestas, logs ni auditoría; revocación al desconectar (ADR-024) | ✅ F4 · probado |
+| Webhooks falsificados o repetidos | Firma `X-Hub-Signature-256` verificada en tiempo constante sobre el cuerpo sin modificar; sin firma válida → 401 y nada encolado; deduplicación por id de evento; el contenido se relee de la API, nunca del aviso | ✅ F4 · probado |
+| Tokens de Meta | `appsecret_proof` en cada llamada, token en cabecera (nunca en la URL), solo se guardan tokens de las páginas elegidas, revocación sin romper otras autorizaciones del mismo usuario (ADR-026) | ✅ F4 · probado |
 | CSRF / secuestro del flujo OAuth | `state` aleatorio de 256 bits, guardado solo como hash, un solo uso y 10 min; PKCE S256; el permiso se vuelve a comprobar al volver de Google; solo quien autorizó puede elegir las fichas | ✅ F4 · probado |
 | Abuso / fuerza bruta | Rate limit por usuario/IP en API (`@fastify/rate-limit`); límites de Supabase Auth | ✅ F1 |
 | Webhooks falsificados o repetidos | HMAC `X-Hub-Signature-256` en tiempo constante, tabla `webhook_events` con `UNIQUE (provider, event_id)` | 📐 diseño F4 |

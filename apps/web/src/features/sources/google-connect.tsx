@@ -1,18 +1,60 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Copy, ExternalLink, Lock, MapPin, TriangleAlert } from 'lucide-react';
+import {
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Lock,
+  MapPin,
+  Search,
+  TriangleAlert,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import type { ClientListItem, Paginated } from '@/lib/types';
 import { Badge, Card, ErrorState, Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
-import { Field, Select } from '@/components/ui/field';
+import { Field, Input, Select } from '@/components/ui/field';
 import { Sheet } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
+import { ClientCombobox, matches } from './meta-connect';
 
 export interface IntegrationsStatus {
   google: { configured: boolean; redirectUri: string; scope: string; missing: string[] };
-  facebook: { configured: boolean };
-  instagram: { configured: boolean };
+  meta: {
+    configured: boolean;
+    redirectUri: string;
+    webhookUrl: string;
+    webhooks: boolean;
+    graphVersion: string;
+    scopes: string[];
+    missing: string[];
+  };
+}
+
+/** URI que hay que copiar en la consola del proveedor. Corta solo tras «/» para que no se lea mal. */
+export function CopyUri({ value }: { value: string }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      className="inline max-w-full rounded text-left font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
+      onClick={() =>
+        void navigator.clipboard?.writeText(value).then(() => toast('success', 'URI copiada'))
+      }
+    >
+      {value.split('/').map((part, i, all) => (
+        <span key={i}>
+          {part}
+          {i < all.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </span>
+      ))}
+      <Copy className="ml-1 inline size-3 align-[-2px]" aria-hidden />
+    </button>
+  );
 }
 
 /** Mensajes para los códigos que devuelve el callback de OAuth. */
@@ -37,7 +79,6 @@ export function GoogleCard({
   canConnect: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const toast = useToast();
   if (!status) return <Skeleton className="h-24" />;
   if (!status.configured) {
     return (
@@ -50,29 +91,7 @@ export function GoogleCard({
             acceso a la API.
           </p>
           <p className="text-xs text-muted">
-            URI de redirección para Google Cloud:{' '}
-            <button
-              type="button"
-              className="inline max-w-full rounded text-left font-mono text-[11px] text-fg underline decoration-dotted underline-offset-2"
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(status.redirectUri)
-                  .then(() => toast('success', 'URI copiada'))
-              }
-            >
-              {/* Corta solo tras «/» para que no se lea mal al copiarla a mano. */}
-              {status.redirectUri.split('/').map((part, i, all) => (
-                <span key={i}>
-                  {part}
-                  {i < all.length - 1 && (
-                    <>
-                      /<wbr />
-                    </>
-                  )}
-                </span>
-              ))}
-              <Copy className="ml-1 inline size-3 align-[-2px]" aria-hidden />
-            </button>
+            URI de redirección para Google Cloud: <CopyUri value={status.redirectUri} />
           </p>
         </div>
       </Card>
@@ -132,14 +151,12 @@ function StartGoogleSheet({ orgId, onClose }: { orgId: string; onClose: () => vo
     >
       <Field label="Cliente" required>
         {(f) => (
-          <Select {...f} value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Elige un cliente</option>
-            {clients.data?.items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+          <ClientCombobox
+            {...f}
+            clients={clients.data?.items ?? []}
+            value={clientId}
+            onChange={setClientId}
+          />
         )}
       </Field>
     </Sheet>
@@ -166,6 +183,7 @@ export function SelectGoogleLocationsSheet({
 }) {
   const toast = useToast();
   const [picked, setPicked] = useState<Record<string, string | null>>({});
+  const [search, setSearch] = useState('');
   const q = useQuery({
     queryKey: ['google-locations', credentialId],
     queryFn: () =>
@@ -205,6 +223,9 @@ export function SelectGoogleLocationsSheet({
     onError: (e) => toast('error', e.message),
   });
   const count = Object.keys(picked).length;
+  const total = q.data?.accounts.reduce((n, a) => n + a.locations.length, 0) ?? 0;
+  const fits = (l: GoogleLocation) =>
+    matches(l.displayName, search) || (l.address ? matches(l.address, search) : false);
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = { ...p };
@@ -247,84 +268,108 @@ export function SelectGoogleLocationsSheet({
         </p>
       ) : (
         <div className="space-y-5">
-          {q.data!.accounts.map((a) => (
-            <fieldset key={a.externalId} className="space-y-2">
-              <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
-                {a.displayName}
-              </legend>
-              {a.locations.map((l) => {
-                const checked = l.externalId in picked;
-                const inputId = `loc-${l.externalId.replace(/\W/g, '-')}`;
-                return (
-                  <div
-                    key={l.externalId}
-                    className="rounded-lg border border-border p-3 has-[:checked]:border-accent"
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        id={inputId}
-                        type="checkbox"
-                        className="mt-1 size-4 accent-[var(--color-accent)]"
-                        checked={checked}
-                        disabled={l.alreadyConnected}
-                        onChange={() => toggle(l.externalId)}
-                      />
-                      <label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer">
-                        <span className="block text-sm font-medium">{l.displayName}</span>
-                        {l.address && (
-                          <span className="flex items-center gap-1 text-xs text-muted">
-                            <MapPin className="size-3" aria-hidden /> {l.address}
-                          </span>
-                        )}
-                        <span className="mt-1 flex flex-wrap gap-1.5">
-                          {l.alreadyConnected ? (
-                            <Badge tone="neutral">Ya conectada</Badge>
-                          ) : l.canReply ? (
-                            <Badge tone="success">Lectura y respuestas</Badge>
-                          ) : (
-                            <Badge tone="warning">
-                              <TriangleAlert className="size-3" aria-hidden /> Solo lectura
-                            </Badge>
+          {total > 1 && (
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+                aria-hidden
+              />
+              <Input
+                type="search"
+                aria-label="Buscar fichas"
+                placeholder="Buscar ficha por nombre o dirección"
+                className="pl-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          )}
+          {search && !q.data!.accounts.some((a) => a.locations.some(fits)) && (
+            <p className="text-sm text-muted">Ninguna ficha coincide con «{search}».</p>
+          )}
+          {q.data!.accounts.map((a) => {
+            // Las ya marcadas se mantienen visibles aunque no coincidan, para no perderlas de vista.
+            const locations = a.locations.filter((l) => fits(l) || l.externalId in picked);
+            if (!locations.length) return null;
+            return (
+              <fieldset key={a.externalId} className="space-y-2">
+                <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+                  {a.displayName}
+                </legend>
+                {locations.map((l) => {
+                  const checked = l.externalId in picked;
+                  const inputId = `loc-${l.externalId.replace(/\W/g, '-')}`;
+                  return (
+                    <div
+                      key={l.externalId}
+                      className="rounded-lg border border-border p-3 has-[:checked]:border-accent"
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          id={inputId}
+                          type="checkbox"
+                          className="mt-1 size-4 accent-[var(--color-accent)]"
+                          checked={checked}
+                          disabled={l.alreadyConnected}
+                          onChange={() => toggle(l.externalId)}
+                        />
+                        <label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer">
+                          <span className="block text-sm font-medium">{l.displayName}</span>
+                          {l.address && (
+                            <span className="flex items-center gap-1 text-xs text-muted">
+                              <MapPin className="size-3" aria-hidden /> {l.address}
+                            </span>
                           )}
-                        </span>
-                        {!l.canReply && l.ineligibilityReason && (
-                          <span className="mt-1 block text-xs text-muted">
-                            {l.ineligibilityReason}. Las reseñas se leerán, pero no se podrá
-                            responder hasta que Google lo permita.
+                          <span className="mt-1 flex flex-wrap gap-1.5">
+                            {l.alreadyConnected ? (
+                              <Badge tone="neutral">Ya conectada</Badge>
+                            ) : l.canReply ? (
+                              <Badge tone="success">Lectura y respuestas</Badge>
+                            ) : (
+                              <Badge tone="warning">
+                                <TriangleAlert className="size-3" aria-hidden /> Solo lectura
+                              </Badge>
+                            )}
                           </span>
-                        )}
-                      </label>
-                    </div>
-                    {checked && (client.data?.locations.length ?? 0) > 0 && (
-                      <div className="mt-3 pl-7">
-                        <Field label="Ubicación del cliente">
-                          {(f) => (
-                            <Select
-                              {...f}
-                              value={picked[l.externalId] ?? ''}
-                              onChange={(e) =>
-                                setPicked((p) => ({
-                                  ...p,
-                                  [l.externalId]: e.target.value || null,
-                                }))
-                              }
-                            >
-                              <option value="">Sin asignar</option>
-                              {client.data!.locations.map((cl) => (
-                                <option key={cl.id} value={cl.id}>
-                                  {cl.name}
-                                </option>
-                              ))}
-                            </Select>
+                          {!l.canReply && l.ineligibilityReason && (
+                            <span className="mt-1 block text-xs text-muted">
+                              {l.ineligibilityReason}. Las reseñas se leerán, pero no se podrá
+                              responder hasta que Google lo permita.
+                            </span>
                           )}
-                        </Field>
+                        </label>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </fieldset>
-          ))}
+                      {checked && (client.data?.locations.length ?? 0) > 0 && (
+                        <div className="mt-3 pl-7">
+                          <Field label="Ubicación del cliente">
+                            {(f) => (
+                              <Select
+                                {...f}
+                                value={picked[l.externalId] ?? ''}
+                                onChange={(e) =>
+                                  setPicked((p) => ({
+                                    ...p,
+                                    [l.externalId]: e.target.value || null,
+                                  }))
+                                }
+                              >
+                                <option value="">Sin asignar</option>
+                                {client.data!.locations.map((cl) => (
+                                  <option key={cl.id} value={cl.id}>
+                                    {cl.name}
+                                  </option>
+                                ))}
+                              </Select>
+                            )}
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </fieldset>
+            );
+          })}
         </div>
       )}
     </Sheet>

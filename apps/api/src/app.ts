@@ -21,6 +21,7 @@ import { aiRoutes } from './routes/ai';
 import { brandRoutes } from './routes/brand';
 import { reportRoutes } from './routes/reports';
 import { googleRoutes } from './routes/google';
+import { metaRoutes } from './routes/meta';
 import type { Integrations } from './domain/credentials';
 
 export interface AppDeps {
@@ -129,6 +130,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await v1.register(interactionRoutes);
       await v1.register(connectionRoutes);
       await v1.register(googleRoutes);
+      await v1.register(metaRoutes);
       await v1.register(aiRoutes);
       await v1.register(brandRoutes);
       await v1.register(reportRoutes);

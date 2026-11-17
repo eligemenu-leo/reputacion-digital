@@ -1,0 +1,44 @@
+# Fly.io · API y worker en Fráncfort (UE). Ver docs/DEPLOY.md.
+# El nombre de la app se fija al crearla (fly launch --no-deploy --copy-config).
+app = "reputacion-digital-api"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8787"
+  HOST = "0.0.0.0"
+  JOBS_ENABLED = "true"
+  LOG_LEVEL = "info"
+
+[processes]
+  app = "node --enable-source-maps dist/server.js"
+  worker = "node --enable-source-maps dist/worker.js"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  processes = ["app"]
+  # La API debe responder a los avisos de Meta y a la web: no se apaga.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  processes = ["app"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-1x"
+  memory = "256mb"

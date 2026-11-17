@@ -10,9 +10,11 @@ import {
   uuidSchema,
 } from '@rep/shared';
 import { requireAuth } from '../app';
-import { withUser, type Tx } from '../lib/db';
+import { elevate, withService, withUser, type Tx } from '../lib/db';
+import { releaseCredential } from '../domain/connection-lifecycle';
 import { requireClientAction, requireClientPermission, requireOrgPermission } from '../lib/authz';
 import { parse } from '../lib/http';
+import { z } from 'zod';
 
 const CLIENT_COLUMNS = `id, organization_id, name, legal_name, sector, description, logo_path, website, phone,
   primary_language, timezone, account_manager_id, status, onboarded_at, business_context, ai_enabled,
@@ -124,6 +126,74 @@ export async function clientRoutes(app: FastifyInstance) {
         await tx`update public.clients set ${tx(patch)} where id = ${clientId} returning ${tx.unsafe(CLIENT_COLUMNS)}`;
       return c;
     });
+  });
+
+  /**
+   * Elimina el cliente y TODOS sus datos (fuentes, reseñas y comentarios,
+   * historial, borradores, aprobaciones, IA e informes). Irreversible. Exige
+   * clients.delete y escribir el nombre del cliente. Solo borra en nuestra base
+   * de datos: no toca nada publicado en Google, Facebook o Instagram.
+   */
+  app.delete('/clients/:clientId', async (req) => {
+    const auth = requireAuth(req);
+    const clientId = idOf(req.params, 'clientId');
+    const input = parse(
+      z.object({ confirmName: z.string().trim().min(1).max(200) }).strict(),
+      req.body ?? {},
+    );
+    const prep = await withUser(sql, auth, async (tx) => {
+      await requireClientPermission(tx, clientId, 'clients.read');
+      const orgId = await getOrgOfClient(tx, clientId);
+      await requireOrgPermission(tx, auth, orgId, 'clients.delete', {
+        sensitive: true,
+        enforceMfa: app.deps.config.ENFORCE_ADMIN_MFA,
+      });
+      const [c] = await tx<
+        { name: string }[]
+      >`select name from public.clients where id = ${clientId}`;
+      const same = (a: string) => a.trim().toLocaleLowerCase('es');
+      if (same(c!.name) !== same(input.confirmName))
+        throw new AppError('VALIDATION', 'El nombre no coincide con el del cliente');
+      await elevate(tx);
+      const [busy] = await tx`
+        select 1 from public.publication_jobs
+         where client_id = ${clientId} and status in ('queued', 'running') limit 1`;
+      if (busy)
+        throw new AppError(
+          'CONFLICT',
+          'Hay respuestas publicándose ahora mismo. Espera a que terminen y vuelve a intentarlo.',
+        );
+      // 1) Se desconectan las fuentes (deja de sincronizar y de publicar).
+      const creds = await tx<{ credentialId: string }[]>`
+        select distinct credential_id from public.connected_accounts
+         where client_id = ${clientId} and credential_id is not null`;
+      await tx`update public.connected_accounts set status = 'disconnected', disconnected_at = coalesce(disconnected_at, now()),
+                 next_run_at = null, credential_id = null where client_id = ${clientId}`;
+      await tx`update public.provider_sync_runs set status = 'cancelled', finished_at = now(), cancelled_by = ${auth.userId}
+                where client_id = ${clientId} and status in ('queued', 'running')`;
+      return { orgId, credentialIds: creds.map((r) => r.credentialId) };
+    });
+    // 2) Se revocan o recortan las autorizaciones que ya no usa ninguna fuente.
+    for (const id of prep.credentialIds) {
+      await releaseCredential(sql, app.deps.integrations, id).catch((err) =>
+        req.log.warn({ err, credentialId: id }, 'release credential failed'),
+      );
+    }
+    // 3) Borrado definitivo, en una transacción.
+    const r = await withService(sql, null, async (tx) => {
+      const [row] = await tx<{ result: { counts: Record<string, number> } }[]>`
+        select private.purge_client(${prep.orgId}::uuid, ${clientId}::uuid, ${auth.userId}::uuid, ${req.id}) as result`;
+      return row!.result;
+    }).catch((err: { code?: string }) => {
+      if (err.code === '55006')
+        throw new AppError(
+          'CONFLICT',
+          'Hay respuestas publicándose ahora mismo. Espera a que terminen y vuelve a intentarlo.',
+        );
+      if (err.code === 'P0002') throw new AppError('NOT_FOUND', 'Cliente no encontrado');
+      throw err;
+    });
+    return { deleted: true, counts: r.counts };
   });
 
   // ---------------- Ubicaciones ----------------

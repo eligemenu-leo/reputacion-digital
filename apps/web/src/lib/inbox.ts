@@ -112,6 +112,7 @@ export interface InboxItem {
   content: string | null;
   rating: string | null;
   ratingScale: number | null;
+  recommendation: 'positive' | 'negative' | null;
   state: InteractionState;
   priority: number;
   assigneeId: string | null;

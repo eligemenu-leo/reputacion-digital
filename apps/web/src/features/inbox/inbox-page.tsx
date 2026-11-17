@@ -377,7 +377,11 @@ export function InboxPage() {
                       <span className="font-medium text-fg">
                         {i.authorDisplayName ?? 'Anónimo'}
                       </span>
-                      <Stars rating={i.rating} scale={i.ratingScale} />
+                      <Stars
+                        rating={i.rating}
+                        scale={i.ratingScale}
+                        recommendation={i.recommendation}
+                      />
                       <span>·</span>
                       <span>{i.clientName}</span>
                       <span>·</span>

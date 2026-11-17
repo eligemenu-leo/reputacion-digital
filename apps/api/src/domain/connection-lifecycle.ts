@@ -4,7 +4,7 @@
  * ninguna ubicación). Una credencial sin uso no se conserva.
  */
 import { withService, type Sql } from '../lib/db';
-import { loadCredential, type Integrations } from './credentials';
+import { loadCredential, updateCredential, type Integrations } from './credentials';
 
 /**
  * Si ninguna fuente activa usa la credencial, se revoca en el proveedor y se
@@ -29,10 +29,81 @@ export async function releaseCredential(
     await tx`delete from private.provider_credentials where id = ${credentialId}`;
     return { creds: loaded };
   });
-  if (!taken) return { released: false, revokedAtProvider: null };
-  if (!taken.creds || !integrations.google) return { released: true, revokedAtProvider: false };
+  if (!taken) {
+    await pruneMetaPages(sql, integrations, credentialId);
+    return { released: false, revokedAtProvider: null };
+  }
+  if (!taken.creds) return { released: true, revokedAtProvider: false };
+  if (taken.creds.row.provider === 'meta') {
+    return { released: true, revokedAtProvider: await releaseMeta(sql, integrations, taken.creds) };
+  }
+  if (!integrations.google) return { released: true, revokedAtProvider: false };
   const r = await integrations.google().disconnect(taken.creds.credentials);
   return { released: true, revokedAtProvider: r.ok };
+}
+
+/**
+ * Meta: se dejan de recibir avisos de las páginas que ya no usa ninguna fuente
+ * y se revoca la app solo si ninguna otra autorización vigente depende del
+ * mismo usuario de Facebook (revocar invalida todos sus tokens de página).
+ */
+async function releaseMeta(
+  sql: Sql,
+  integrations: Integrations,
+  creds: NonNullable<Awaited<ReturnType<typeof loadCredential>>>,
+): Promise<boolean> {
+  const meta = integrations.meta;
+  if (!meta) return false;
+  const graph = meta.graph();
+  const pageIds = Object.keys(creds.pages);
+  const { stillUsed, otherCredential } = await withService(sql, null, async (tx) => {
+    const used = await tx<{ pageId: string }[]>`
+      select distinct config->>'pageId' as page_id from public.connected_accounts
+       where provider in ('facebook_page', 'instagram_business') and status <> 'disconnected'
+         and config->>'pageId' = any(${pageIds})`;
+    const [other] = creds.row.providerUserRef
+      ? await tx`
+          select 1 from private.provider_credentials
+           where provider = 'meta' and provider_user_ref = ${creds.row.providerUserRef} and id <> ${creds.row.id}
+             and revoked_at is null limit 1`
+      : [];
+    return { stillUsed: new Set(used.map((u) => u.pageId)), otherCredential: Boolean(other) };
+  });
+  for (const id of pageIds) {
+    if (stillUsed.has(id)) continue;
+    await graph.unsubscribePage({ id, accessToken: creds.pages[id]!.token });
+  }
+  if (otherCredential) return false;
+  return (await graph.revoke(creds.credentials.accessToken)).ok;
+}
+
+/**
+ * Meta: la autorización sigue en uso por otras fuentes, pero las páginas que ya no
+ * usa ninguna dejan de recibir avisos y su token de página se borra (solo se
+ * guardan tokens de páginas en uso).
+ */
+async function pruneMetaPages(sql: Sql, integrations: Integrations, credentialId: string) {
+  const box = integrations.box;
+  const meta = integrations.meta;
+  if (!box || !meta) return;
+  const removed = await withService(sql, null, async (tx) => {
+    const c = await loadCredential(tx, box, credentialId, { forUpdate: true }).catch(() => null);
+    if (!c || c.row.provider !== 'meta') return [];
+    const ids = Object.keys(c.pages);
+    if (!ids.length) return [];
+    const used = await tx<{ pageId: string }[]>`
+      select distinct config->>'pageId' as page_id from public.connected_accounts
+       where provider in ('facebook_page', 'instagram_business') and status <> 'disconnected'
+         and config->>'pageId' = any(${ids})`;
+    const keep = new Set(used.map((u) => u.pageId));
+    const gone = ids.filter((id) => !keep.has(id));
+    if (!gone.length) return [];
+    const pages = Object.fromEntries(Object.entries(c.pages).filter(([id]) => keep.has(id)));
+    await updateCredential(tx, box, credentialId, c.credentials, pages);
+    return gone.map((id) => ({ id, accessToken: c.pages[id]!.token }));
+  });
+  const graph = meta.graph();
+  for (const p of removed) await graph.unsubscribePage(p);
 }
 
 /** Limpieza periódica (barrido del worker). */
@@ -43,6 +114,7 @@ export async function sweepCredentials(
 ) {
   const ids = await withService(sql, null, async (tx) => {
     await tx`delete from private.oauth_states where expires_at < now() - interval '1 day'`;
+    await tx`delete from private.webhook_events where received_at < now() - interval '7 days'`;
     const rows = await tx<{ id: string }[]>`
       select c.id from private.provider_credentials c
        where c.created_at < now() - make_interval(mins => ${olderThanMinutes})
