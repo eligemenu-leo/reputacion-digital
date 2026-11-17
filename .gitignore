@@ -11,3 +11,6 @@ supabase/.branches
 e2e-shots
 supabase/.env*
 .vite
+
+# Secretos del VPS
+deploy/vps/api.env

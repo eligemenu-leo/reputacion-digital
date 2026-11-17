@@ -58,7 +58,28 @@ Las dependencias de terceros se resuelven desde `node_modules` (instalar con `pn
 
 Imagen: `Dockerfile` en la raíz (Node 22; API por defecto, worker con `node dist/worker.js`). Construcción local: `docker build -t reputacion-api .`.
 
-## Producción ligera elegida (2026-11-16): Supabase gratis + Fly.io + Cloudflare
+## Producción elegida (2026-11-17): Supabase gratis + VPS IONOS (Plesk + Docker) + Cloudflare
+
+Cambio respecto al plan del 16-nov: la API y el worker van al **VPS de IONOS** que Leo ya paga y usa para otros proyectos (Ubuntu 24.04, Plesk Obsidian), en lugar de Fly.io. Coste añadido: 0 €.
+
+| Pieza | Dónde |
+|---|---|
+| Base de datos + Auth | Supabase Free, proyecto `reputacion-digital` (ref `msebvmmmfiryhcjntawx`, Fráncfort) |
+| API + worker | VPS IONOS, extensión Docker de Plesk, `deploy/vps/compose.yml` |
+| API pública | `https://api-reputacion.eligemenu.com` (DNS en Cloudflare, nube gris; certificado Let's Encrypt de Plesk; regla de proxy de Docker → `127.0.0.1:8787`) |
+| Web | Cloudflare Pages en `https://reputacion.eligemenu.com` |
+
+**Imagen:** `.github/workflows/image.yml` publica `ghcr.io/eligemenu-leo/reputacion-digital` (`:staging` desde la rama `fase-4b-meta`, `:latest` desde `main`, y `:sha-xxxxxxx`). La imagen no lleva secretos. Si el paquete de GHCR es privado, el VPS necesita `docker login ghcr.io` con un token de solo lectura; lo más simple es marcar el paquete como público (el código ya lo es).
+
+**Secretos:** `deploy/vps/api.env` en el VPS, fuera de las carpetas web y con permisos 600 (plantilla: `api.env.example`). Claves nuevas para producción: `AUTHOR_REF_PEPPER` y `CREDENTIALS_ENCRYPTION_KEYS` no se reutilizan del Mac.
+
+**DATABASE_URL:** pooler de Supabase en modo **sesión** (puerto 5432). La conexión directa es solo IPv6.
+
+**Migraciones aplicadas** el 2026-11-17 con el conector MCP de Supabase: las versiones del historial remoto son marcas de tiempo de ese día, no las de `supabase/migrations`. Antes de usar `supabase db push` contra este proyecto, alinear el historial con `supabase migration repair` (marcar como aplicadas las 10 versiones del repo y revertir las del conector).
+
+**Actualizar:** en Plesk → Docker, «Volver a descargar la imagen» y recrear los dos contenedores (o `docker compose pull && docker compose up -d` en `deploy/vps`).
+
+## Plan anterior (descartado el 2026-11-17): Supabase gratis + Fly.io + Cloudflare
 
 Leo eligió empezar sin coste fijo: **0–5 $/mes** más el consumo de OpenAI. Cuando haya clientes de pago, se pasa Supabase a Pro con un cambio de plan, sin migrar nada.
 
