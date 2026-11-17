@@ -142,7 +142,7 @@ function CreateOrgSheet({
         <Field
           label="Email del administrador"
           required
-          hint="Si no tiene cuenta, recibirá una invitación."
+          hint="Si ya tiene cuenta, quedará como administrador al momento. Si no, recibirá una invitación por email."
         >
           {(p) => (
             <Input
@@ -153,6 +153,18 @@ function CreateOrgSheet({
             />
           )}
         </Field>
+        {create.error instanceof ApiError && create.error.code === 'MFA_REQUIRED' && (
+          <p
+            role="alert"
+            className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+          >
+            Para crear organizaciones tienes que activar la verificación en dos pasos.{' '}
+            <Link to="/cuenta" className="font-medium underline">
+              Actívala en Mi cuenta
+            </Link>{' '}
+            y vuelve a intentarlo. Si ya la tienes, cierra sesión y entra de nuevo con el código.
+          </p>
+        )}
       </form>
     </Sheet>
   );
