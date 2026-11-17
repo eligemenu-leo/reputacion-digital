@@ -14,3 +14,6 @@ supabase/.env*
 
 # Secretos del VPS
 deploy/vps/api.env
+
+# Credenciales descargadas de Google Cloud (nunca al repo)
+client_secret*.json

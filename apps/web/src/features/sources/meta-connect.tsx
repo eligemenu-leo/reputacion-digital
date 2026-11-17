@@ -170,7 +170,7 @@ export function matches(name: string, query: string) {
 }
 
 /** Selector de cliente en el que se puede escribir para filtrar. */
-function ClientCombobox({
+export function ClientCombobox({
   clients,
   value,
   onChange,
